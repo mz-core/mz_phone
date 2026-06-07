@@ -244,8 +244,11 @@ window.PhoneAPI = (() => {
       return await post("declineCall", { callId });
     },
 
-    async endVoiceCall(callId) {
-      return await post("endVoiceCall", { callId });
+    async endVoiceCall(callId, options = {}) {
+      return await post("endVoiceCall", {
+        callId,
+        ...(options || {}),
+      });
     },
 
     onIncomingCall(callback) {

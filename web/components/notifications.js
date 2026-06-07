@@ -93,6 +93,10 @@ window.PhoneUI.notify = function (payload = {}) {
 
   container.appendChild(el);
 
+  if (window.PhoneApp?.showNotificationPreview) {
+    window.PhoneApp.showNotificationPreview(duration);
+  }
+
   if (window.lucide && typeof window.lucide.createIcons === "function") {
     window.lucide.createIcons();
   }

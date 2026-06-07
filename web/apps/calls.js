@@ -124,6 +124,10 @@ function resolveContactByNumber(state, number) {
 }
 
 function resolveCallDisplayName(state, call) {
+  if (call.displayName || call.display_name || call.contactName) {
+    return call.displayName || call.display_name || call.contactName;
+  }
+
   const contact = resolveContactByNumber(state, call.number);
   return contact?.name || call.number || "Desconhecido";
 }
@@ -327,9 +331,21 @@ function renderContacts(state) {
 function renderCallSession(state) {
   const session = state.callSession;
   const displayName = session.name || session.number || "Desconhecido";
+  const isDialing = session.state === "dialing";
 
   return `
     <div class="call-session-screen">
+      ${
+        isDialing
+          ? `
+            <div class="call-ring-pulse" aria-hidden="true">
+              <span></span>
+              <span></span>
+            </div>
+          `
+          : ""
+      }
+
       <div class="call-session-avatar">
         ${window.Utils.escapeHtml((displayName || "?").charAt(0).toUpperCase())}
       </div>
@@ -339,13 +355,19 @@ function renderCallSession(state) {
       <div class="call-session-status">${window.Utils.escapeHtml(getCallSessionStatusLabel(session))}</div>
 
       <div class="call-session-actions">
-        <button class="call-session-btn muted" onclick="window.CallsApp.fakeMute()">
-          <i data-lucide="mic-off"></i>
-        </button>
+        ${
+          isDialing
+            ? ""
+            : `
+              <button class="call-session-btn muted" onclick="window.CallsApp.fakeMute()">
+                <i data-lucide="mic-off"></i>
+              </button>
 
-        <button class="call-session-btn muted" onclick="window.CallsApp.fakeSpeaker()">
-          <i data-lucide="volume-2"></i>
-        </button>
+              <button class="call-session-btn muted" onclick="window.CallsApp.fakeSpeaker()">
+                <i data-lucide="volume-2"></i>
+              </button>
+            `
+        }
 
         <button class="call-session-btn end" onclick="window.CallsApp.endCall()">
           <i data-lucide="phone-off"></i>
@@ -359,7 +381,7 @@ function getCallSessionStatusLabel(session) {
   if (!session) return "";
 
   if (session.state === "dialing") {
-    return "Ligando...";
+    return "Chamando...";
   }
 
   if (session.state === "active") {
@@ -675,7 +697,9 @@ window.CallsApp = {
     }
 
     if (window.PhoneAPI?.endVoiceCall) {
-      await window.PhoneAPI.endVoiceCall(session.callId);
+      await window.PhoneAPI.endVoiceCall(session.callId, {
+        closePhoneAfterCall: session.state === "dialing",
+      });
     }
   },
 

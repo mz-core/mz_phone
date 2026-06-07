@@ -15,6 +15,7 @@ files {
     'web/*.js',
     'web/apps/*.js',
     'web/components/*.js',
+    'web/sounds/*',
     'web/css/*.css',
     'web/css/apps/*.css'
 }

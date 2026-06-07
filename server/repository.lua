@@ -35,12 +35,16 @@ local function migrateLegacyColumns()
     renameColumnIfNeeded('mz_phone_numbers', 'character_id', 'citizenid', 'VARCHAR(64) NOT NULL')
 
     renameColumnIfNeeded('mz_phone_contacts', 'character_id', 'owner_citizenid', 'VARCHAR(64) NOT NULL')
+    renameColumnIfNeeded('mz_phone_contacts', 'citizenid', 'owner_citizenid', 'VARCHAR(64) NOT NULL')
     renameColumnIfNeeded('mz_phone_contacts', 'name', 'contact_name', 'VARCHAR(100) NOT NULL')
     renameColumnIfNeeded('mz_phone_contacts', 'number', 'contact_phone', 'VARCHAR(32) NOT NULL')
 
     renameColumnIfNeeded('mz_phone_conversations', 'character_id', 'owner_citizenid', 'VARCHAR(64) NOT NULL')
+    renameColumnIfNeeded('mz_phone_conversations', 'citizenid', 'owner_citizenid', 'VARCHAR(64) NOT NULL')
     renameColumnIfNeeded('mz_phone_messages', 'character_id', 'owner_citizenid', 'VARCHAR(64) NOT NULL')
+    renameColumnIfNeeded('mz_phone_messages', 'citizenid', 'owner_citizenid', 'VARCHAR(64) NOT NULL')
     renameColumnIfNeeded('mz_phone_calls', 'character_id', 'owner_citizenid', 'VARCHAR(64) NOT NULL')
+    renameColumnIfNeeded('mz_phone_calls', 'citizenid', 'owner_citizenid', 'VARCHAR(64) NOT NULL')
 
     renameColumnIfNeeded('mz_phone_gallery', 'character_id', 'citizenid', 'VARCHAR(64) NOT NULL')
     renameColumnIfNeeded('mz_phone_apps', 'character_id', 'citizenid', 'VARCHAR(64) NOT NULL')
@@ -299,6 +303,21 @@ function Repository.GetContact(citizenid, contactId)
     ]], { contactId, citizenid })
 end
 
+function Repository.GetContactByNumber(citizenid, phoneNumber)
+    return MySQL.single.await([[
+        SELECT id, contact_name AS name, contact_phone AS number, avatar, favorite
+        FROM mz_phone_contacts
+        WHERE owner_citizenid = ? AND contact_phone = ?
+        ORDER BY favorite DESC, id DESC
+        LIMIT 1
+    ]], { citizenid, phoneNumber })
+end
+
+function Repository.FindContactNameByNumber(citizenid, phoneNumber)
+    local contact = Repository.GetContactByNumber(citizenid, phoneNumber)
+    return contact and contact.name or nil
+end
+
 function Repository.CreateContact(citizenid, data)
     return MySQL.insert.await([[
         INSERT INTO mz_phone_contacts (owner_citizenid, contact_name, contact_phone, avatar, favorite)
@@ -339,29 +358,71 @@ end
 
 function Repository.GetConversations(citizenid)
     return MySQL.query.await([[
-        SELECT id, owner_citizenid, target_number, target_name, unread_count, created_at, updated_at
+        SELECT
+            id,
+            owner_citizenid,
+            target_number,
+            target_name,
+            COALESCE((
+                SELECT contact_name
+                FROM mz_phone_contacts
+                WHERE owner_citizenid = ? AND contact_phone = mz_phone_conversations.target_number
+                ORDER BY favorite DESC, id DESC
+                LIMIT 1
+            ), target_name, target_number) AS display_name,
+            unread_count,
+            created_at,
+            updated_at
         FROM mz_phone_conversations
         WHERE owner_citizenid = ?
         ORDER BY updated_at DESC, id DESC
-    ]], { citizenid }) or {}
+    ]], { citizenid, citizenid }) or {}
 end
 
 function Repository.GetConversation(citizenid, conversationId)
     return MySQL.single.await([[
-        SELECT id, owner_citizenid, target_number, target_name, unread_count, created_at, updated_at
+        SELECT
+            id,
+            owner_citizenid,
+            target_number,
+            target_name,
+            COALESCE((
+                SELECT contact_name
+                FROM mz_phone_contacts
+                WHERE owner_citizenid = ? AND contact_phone = mz_phone_conversations.target_number
+                ORDER BY favorite DESC, id DESC
+                LIMIT 1
+            ), target_name, target_number) AS display_name,
+            unread_count,
+            created_at,
+            updated_at
         FROM mz_phone_conversations
         WHERE id = ? AND owner_citizenid = ?
         LIMIT 1
-    ]], { conversationId, citizenid })
+    ]], { citizenid, conversationId, citizenid })
 end
 
 function Repository.FindConversationByNumber(citizenid, targetNumber)
     return MySQL.single.await([[
-        SELECT id, owner_citizenid, target_number, target_name, unread_count, created_at, updated_at
+        SELECT
+            id,
+            owner_citizenid,
+            target_number,
+            target_name,
+            COALESCE((
+                SELECT contact_name
+                FROM mz_phone_contacts
+                WHERE owner_citizenid = ? AND contact_phone = mz_phone_conversations.target_number
+                ORDER BY favorite DESC, id DESC
+                LIMIT 1
+            ), target_name, target_number) AS display_name,
+            unread_count,
+            created_at,
+            updated_at
         FROM mz_phone_conversations
         WHERE owner_citizenid = ? AND target_number = ?
         LIMIT 1
-    ]], { citizenid, targetNumber })
+    ]], { citizenid, citizenid, targetNumber })
 end
 
 function Repository.CreateConversation(citizenid, targetNumber, targetName)
@@ -446,6 +507,22 @@ function Repository.GetCallHistoryByCitizenId(citizenid, limit)
                 WHEN receiver_citizenid = ? THEN COALESCE(caller_number, number, '')
                 ELSE COALESCE(number, receiver_number, caller_number, '')
             END AS number,
+            COALESCE((
+                SELECT contact_name
+                FROM mz_phone_contacts
+                WHERE owner_citizenid = ?
+                    AND contact_phone = CASE
+                        WHEN caller_citizenid = ? THEN COALESCE(receiver_number, number, '')
+                        WHEN receiver_citizenid = ? THEN COALESCE(caller_number, number, '')
+                        ELSE COALESCE(number, receiver_number, caller_number, '')
+                    END
+                ORDER BY favorite DESC, id DESC
+                LIMIT 1
+            ), CASE
+                WHEN caller_citizenid = ? THEN COALESCE(receiver_number, number, '')
+                WHEN receiver_citizenid = ? THEN COALESCE(caller_number, number, '')
+                ELSE COALESCE(number, receiver_number, caller_number, '')
+            END) AS display_name,
             contact_id,
             CASE
                 WHEN status IN ('missed', 'unanswered') THEN 'missed'
@@ -467,6 +544,11 @@ function Repository.GetCallHistoryByCitizenId(citizenid, limit)
         ORDER BY id DESC
         LIMIT ?
     ]], {
+        citizenid,
+        citizenid,
+        citizenid,
+        citizenid,
+        citizenid,
         citizenid,
         citizenid,
         citizenid,

@@ -19,6 +19,8 @@
     <link rel="stylesheet" href="css/apps/calls.css" />
   </head>
   <body>
+    <audio id="phone-ringtone" preload="auto" loop></audio>
+
     <div id="phoneShell" class="phone-shell">
       <div class="phone-frame">
         <div class="phone-notch"></div>
@@ -45,6 +47,8 @@
           <div id="appScreen" class="app-screen" style="display: none">
             <div id="appContent" class="app-content-root"></div>
           </div>
+
+          <div id="callOverlay" class="phone-call-overlay" style="display: none"></div>
 
           <button
             id="homeIndicator"

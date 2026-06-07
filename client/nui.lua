@@ -147,6 +147,12 @@ end)
 RegisterNUICallback('endVoiceCall', function(data, cb)
     nuiLog('endVoiceCall', ('callId=%s'):format(tostring(data and data.callId)))
     TriggerServerEvent('mz_phone:server:endCall', data and data.callId)
+
+    if data and data.closePhoneAfterCall == true then
+        nuiLog('endVoiceCall', 'closing phone after dialing cancel')
+        MZPhone.SetOpen(false)
+    end
+
     ok(cb)
 end)
 

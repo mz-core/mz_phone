@@ -303,6 +303,7 @@
 }
 
 .call-session-screen {
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -310,6 +311,42 @@
   justify-content: center;
   text-align: center;
   padding: 10px 0 24px;
+}
+
+.call-ring-pulse {
+  position: absolute;
+  width: 132px;
+  height: 132px;
+  pointer-events: none;
+}
+
+.call-ring-pulse span {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 208, 132, 0.42);
+  animation: callPulse 1.7s ease-out infinite;
+}
+
+.call-ring-pulse span:nth-child(2) {
+  animation-delay: 0.65s;
+}
+
+@keyframes callPulse {
+  0% {
+    transform: scale(0.72);
+    opacity: 0.78;
+  }
+
+  70% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+
+  100% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
 }
 
 .call-session-avatar {
@@ -324,6 +361,8 @@
   font-size: 38px;
   font-weight: 800;
   margin-bottom: 18px;
+  position: relative;
+  z-index: 2;
 }
 
 .call-session-name {
@@ -343,6 +382,7 @@
   color: #00d084;
   margin-top: 14px;
   min-height: 22px;
+  font-weight: 700;
 }
 
 .call-session-actions {

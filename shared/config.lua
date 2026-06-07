@@ -27,6 +27,11 @@ Config.Phone = {
         RingTimeoutMs = 30000,
         RateLimitMs = 3000,
         MaxHistory = 50
+    },
+    Audio = {
+        Enabled = true,
+        DefaultRingtone = 'ringtone',
+        RingtoneVolume = 0.45
     }
 }
 

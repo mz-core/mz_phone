@@ -4,8 +4,26 @@ local phoneOpen = false
 local openRetryAttempts = 0
 local retryInProgress = false
 
+local function setKeepInput(state)
+    if type(SetNuiFocusKeepInput) == 'function' then
+        SetNuiFocusKeepInput(state == true)
+    end
+end
+
 function MZPhone.IsOpen()
     return phoneOpen == true
+end
+
+function MZPhone.AcquireFocus(reason)
+    MZPhone.Debug.Log('focus', ('acquire reason=%s'):format(tostring(reason or 'unknown')))
+    SetNuiFocus(true, true)
+    setKeepInput(false)
+end
+
+function MZPhone.ReleaseFocus(reason)
+    MZPhone.Debug.Log('focus', ('release reason=%s'):format(tostring(reason or 'unknown')))
+    SetNuiFocus(false, false)
+    setKeepInput(false)
 end
 
 function MZPhone.SetOpen(state, data)
@@ -23,7 +41,11 @@ function MZPhone.SetOpen(state, data)
         MZPhone.Debug.Log('phone', 'close')
     end
 
-    SetNuiFocus(phoneOpen, phoneOpen)
+    if phoneOpen then
+        MZPhone.AcquireFocus('open_phone')
+    else
+        MZPhone.ReleaseFocus('close_phone')
+    end
 
     SendNUIMessage({
         action = phoneOpen and 'open' or 'close'
@@ -107,5 +129,5 @@ AddEventHandler('onResourceStop', function(resourceName)
         PhoneAnimation.Cleanup()
     end
 
-    SetNuiFocus(false, false)
+    MZPhone.ReleaseFocus('resource_stop')
 end)

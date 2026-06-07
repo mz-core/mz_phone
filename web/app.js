@@ -4,6 +4,7 @@ const appContent = document.getElementById("appContent");
 const homeIndicator = document.getElementById("homeIndicator");
 const statusClock = document.getElementById("statusClock");
 const phoneShell = document.getElementById("phoneShell");
+const callOverlay = document.getElementById("callOverlay");
 
 const DEFAULT_PHONE_STATE = {
   isOpen: false,
@@ -61,6 +62,8 @@ const DEFAULT_PHONE_STATE = {
   dialerValue: "",
   callSession: null,
   incomingCall: null,
+  previousApp: null,
+  notificationPreview: null,
   pendingOpenConversationNumber: null,
   lastMessageSoundKey: null,
 
@@ -127,6 +130,145 @@ function patchPhoneState(partial) {
     ...phoneState,
     ...partial,
   });
+}
+
+function logNui(scope, message) {
+  if (window.localStorage?.getItem("mzPhoneDebug") !== "1") return;
+  console.debug(`[mz_phone][nui/${scope}] ${message}`);
+}
+
+function applyShellState() {
+  if (!phoneShell) return;
+
+  const isOpen = phoneState.isOpen === true;
+  const hasIncoming = Boolean(phoneState.incomingCall);
+  const hasCallSession = Boolean(phoneState.callSession);
+  const isPeeking = Boolean(phoneState.notificationPreview);
+  const shouldShow = isOpen || hasIncoming || hasCallSession || isPeeking;
+
+  phoneShell.style.display = shouldShow ? "flex" : "none";
+  phoneShell.classList.toggle("phone-open", isOpen);
+  phoneShell.classList.toggle("phone-closed", !isOpen && !hasIncoming && !hasCallSession && !isPeeking);
+  phoneShell.classList.toggle("phone-peek", !isOpen && isPeeking && !hasIncoming && !hasCallSession);
+  phoneShell.classList.toggle("has-incoming-call", hasIncoming);
+  phoneShell.classList.toggle("has-active-call", !hasIncoming && hasCallSession);
+}
+
+function showPhonePreview(duration = 3600) {
+  if (phoneState.isOpen || phoneState.incomingCall) {
+    applyShellState();
+    return;
+  }
+
+  const previewId = Date.now();
+  phoneState.notificationPreview = previewId;
+  logNui("notify", "peek phone for notification");
+  applyShellState();
+
+  setTimeout(() => {
+    if (phoneState.notificationPreview !== previewId) return;
+    phoneState.notificationPreview = null;
+    applyShellState();
+  }, duration);
+}
+
+function renderCallOverlay() {
+  if (!callOverlay) return;
+
+  const call = phoneState.incomingCall;
+  if (!call) {
+    callOverlay.style.display = "none";
+    callOverlay.innerHTML = "";
+    applyShellState();
+    return;
+  }
+
+  const displayName = call.name || call.number || "Desconhecido";
+  const first = (displayName || "?").trim().charAt(0).toUpperCase() || "?";
+
+  callOverlay.innerHTML = `
+    <div class="phone-call-overlay-inner">
+      <div class="call-ring-pulse" aria-hidden="true">
+        <span></span>
+        <span></span>
+      </div>
+
+      <div class="call-session-avatar overlay-avatar">
+        ${window.Utils.escapeHtml(first)}
+      </div>
+
+      <div class="call-session-name">${window.Utils.escapeHtml(displayName)}</div>
+      <div class="call-session-number">${window.Utils.escapeHtml(call.number || "")}</div>
+      <div class="call-session-status incoming">Chamada recebida</div>
+
+      <div class="call-session-actions overlay-actions">
+        <button class="call-session-btn decline" onclick="window.CallsApp.declineIncomingCall()">
+          <i data-lucide="phone-off"></i>
+        </button>
+
+        <button class="call-session-btn accept" onclick="window.CallsApp.acceptIncomingCall()">
+          <i data-lucide="phone"></i>
+        </button>
+      </div>
+    </div>
+  `;
+
+  callOverlay.style.display = "flex";
+
+  if (window.lucide && typeof window.lucide.createIcons === "function") {
+    window.lucide.createIcons();
+  }
+
+  logNui("call", "open incoming overlay");
+  applyShellState();
+}
+
+function clearCallOverlay() {
+  phoneState.incomingCall = null;
+  renderCallOverlay();
+}
+
+function getIncomingRingtoneOptions() {
+  const audio = phoneState.audio || {};
+  const enabled = audio.enabled !== false;
+  const selectedRingtone = phoneState.ringtone || "default";
+  const ringtone =
+    selectedRingtone === "default"
+      ? audio.defaultRingtone || "ringtone"
+      : selectedRingtone;
+
+  return {
+    enabled,
+    source: ringtone,
+    volume:
+      typeof audio.ringtoneVolume === "number"
+        ? audio.ringtoneVolume
+        : 0.45,
+  };
+}
+
+function playIncomingRingtone() {
+  const options = getIncomingRingtoneOptions();
+  if (options.enabled !== true) return;
+
+  if (window.PhoneAudio?.playIncomingRingtone) {
+    window.PhoneAudio.playIncomingRingtone(options);
+    return;
+  }
+
+  window.PhoneAudio?.play?.("ringtone", "sounds/ringtone.ogg", {
+    loop: true,
+    volume: options.volume,
+  });
+}
+
+function stopIncomingRingtone() {
+  if (window.PhoneAudio?.stopIncomingRingtone) {
+    window.PhoneAudio.stopIncomingRingtone();
+    return;
+  }
+
+  window.PhoneAudio?.stop?.("ringtone");
 }
 
 function updateClock() {
@@ -370,9 +512,8 @@ function handlePhoneOpen() {
   phoneState.messageDraft = "";
   phoneState.messagesDeepOpen = false;
 
-  if (phoneShell) {
-    phoneShell.style.display = "flex";
-  }
+  phoneState.notificationPreview = null;
+  applyShellState();
 
   if (appScreen) appScreen.style.display = "none";
   if (homeScreen) homeScreen.style.display = "block";
@@ -380,6 +521,7 @@ function handlePhoneOpen() {
   updateClock();
   applyTheme();
   renderHome();
+  renderCallOverlay();
 }
 
 function handlePhoneClose() {
@@ -394,13 +536,13 @@ function handlePhoneClose() {
   }
 
   phoneState.currentApp = null;
+  phoneState.notificationPreview = null;
 
   if (appScreen) appScreen.style.display = "none";
   if (homeScreen) homeScreen.style.display = "block";
 
-  if (phoneShell) {
-    phoneShell.style.display = "none";
-  }
+  renderCallOverlay();
+  applyShellState();
 }
 
 function bootPhone() {
@@ -440,15 +582,18 @@ function bootPhone() {
 
   if (window.PhoneAPI?.onIncomingCall) {
     window.PhoneAPI.onIncomingCall((data) => {
+      logNui("call", "incomingCall received");
+
       const number = String(data.fromNumber || "");
       const contact = (phoneState.contacts || []).find(
         (item) => String(item.number || "") === number,
       );
 
-      const displayName = contact?.name || number || "Desconhecido";
+      const displayName =
+        data.displayName || data.contactName || contact?.name || number || data.fallbackName || "Desconhecido";
 
       window.PhoneApp.patchState({
-        currentApp: "calls",
+        previousApp: phoneState.currentApp,
         incomingCall: {
           callId: data.callId,
           number,
@@ -458,25 +603,18 @@ function bootPhone() {
         callSession: null,
       });
 
-      renderCurrentApp();
+      renderCallOverlay();
 
-      window.PhoneAudio?.play(
-        "ringtone",
-        "https://fivem.mazinho.org/mz_phone_server/audio/phone/ringtone.ogg",
-        { loop: true, volume: 1 },
-      );
+      playIncomingRingtone();
 
-      window.PhoneUI?.notify?.({
-        type: "info",
-        title: "Chamada recebida",
-        message: displayName,
-        duration: 4000,
-      });
+      applyShellState();
     });
   }
 
   if (window.PhoneAPI?.onOutgoingCallStarted) {
     window.PhoneAPI.onOutgoingCallStarted((data) => {
+      logNui("call", "outgoing started");
+
       const number = String(data.targetNumber || "");
       const contact = (phoneState.contacts || []).find(
         (item) => String(item.number || "") === number,
@@ -488,7 +626,7 @@ function bootPhone() {
         callSession: {
           callId: data.callId,
           number,
-          name: contact?.name || number || "Desconhecido",
+          name: data.displayName || data.contactName || contact?.name || number || data.fallbackName || "Desconhecido",
           state: "dialing",
           startedAt: null,
           duration: 0,
@@ -496,7 +634,11 @@ function bootPhone() {
         },
       });
 
+      if (homeScreen) homeScreen.style.display = "none";
+      if (appScreen) appScreen.style.display = "flex";
+      renderCallOverlay();
       renderCurrentApp();
+      applyShellState();
 
       window.PhoneAudio?.play(
         "calling",
@@ -512,7 +654,7 @@ function bootPhone() {
       const session = state.callSession;
       const incoming = state.incomingCall;
 
-      window.PhoneAudio?.stop("ringtone");
+      stopIncomingRingtone();
       window.PhoneAudio?.stop("calling");
 
       if (
@@ -528,6 +670,7 @@ function bootPhone() {
           },
         });
 
+        applyShellState();
         renderCurrentApp();
         window.CallsApp?.startDurationTicker?.();
         return;
@@ -539,6 +682,8 @@ function bootPhone() {
       ) {
         window.PhoneApp.patchState({
           incomingCall: null,
+          currentApp: "calls",
+          callsTab: "recents",
           callSession: {
             callId: data.callId,
             number: incoming.number || "",
@@ -550,6 +695,10 @@ function bootPhone() {
           },
         });
 
+        if (homeScreen) homeScreen.style.display = "none";
+        if (appScreen) appScreen.style.display = "flex";
+        renderCallOverlay();
+        applyShellState();
         renderCurrentApp();
         window.CallsApp?.startDurationTicker?.();
         window.PhoneUI?.notify?.({
@@ -564,17 +713,32 @@ function bootPhone() {
 
   if (window.PhoneAPI?.onCallDeclined) {
     window.PhoneAPI.onCallDeclined(() => {
-      window.PhoneAudio?.stop("ringtone");
+      const wasIncoming = Boolean(phoneState.incomingCall);
+      const previousApp = phoneState.previousApp || null;
+
+      stopIncomingRingtone();
       window.PhoneAudio?.stop("calling");
 
       window.PhoneApp.patchState({
         incomingCall: null,
         callSession: null,
         callsTab: "recents",
-        currentApp: "calls",
+        currentApp: wasIncoming ? previousApp : "calls",
+        previousApp: null,
       });
 
-      renderCurrentApp();
+      renderCallOverlay();
+      applyShellState();
+
+      if (phoneState.currentApp) {
+        if (homeScreen) homeScreen.style.display = "none";
+        if (appScreen) appScreen.style.display = "flex";
+        renderCurrentApp();
+      } else {
+        if (appScreen) appScreen.style.display = "none";
+        if (homeScreen) homeScreen.style.display = "block";
+        renderHome();
+      }
 
       window.PhoneUI?.notify?.({
         type: "info",
@@ -587,7 +751,7 @@ function bootPhone() {
 
   if (window.PhoneAPI?.onCallEnded) {
     window.PhoneAPI.onCallEnded(() => {
-      window.PhoneAudio?.stop("ringtone");
+      stopIncomingRingtone();
       window.PhoneAudio?.stop("calling");
 
       if (window.CallsApp?._durationInterval) {
@@ -600,8 +764,13 @@ function bootPhone() {
         callSession: null,
         callsTab: "recents",
         currentApp: "calls",
+        previousApp: null,
       });
 
+      renderCallOverlay();
+      applyShellState();
+      if (homeScreen) homeScreen.style.display = "none";
+      if (appScreen) appScreen.style.display = "flex";
       renderCurrentApp();
       window.PhoneAPI?.getCalls?.();
     });
@@ -609,7 +778,10 @@ function bootPhone() {
 
   if (window.PhoneAPI?.onCallMissed) {
     window.PhoneAPI.onCallMissed(() => {
-      window.PhoneAudio?.stop("ringtone");
+      const wasIncoming = Boolean(phoneState.incomingCall);
+      const previousApp = phoneState.previousApp || null;
+
+      stopIncomingRingtone();
       window.PhoneAudio?.stop("calling");
 
       if (window.CallsApp?._durationInterval) {
@@ -621,10 +793,23 @@ function bootPhone() {
         incomingCall: null,
         callSession: null,
         callsTab: "recents",
-        currentApp: "calls",
+        currentApp: wasIncoming ? previousApp : "calls",
+        previousApp: null,
       });
 
-      renderCurrentApp();
+      renderCallOverlay();
+      applyShellState();
+
+      if (phoneState.currentApp) {
+        if (homeScreen) homeScreen.style.display = "none";
+        if (appScreen) appScreen.style.display = "flex";
+        renderCurrentApp();
+      } else {
+        if (appScreen) appScreen.style.display = "none";
+        if (homeScreen) homeScreen.style.display = "block";
+        renderHome();
+      }
+
       window.PhoneAPI?.getCalls?.();
 
       window.PhoneUI?.notify?.({
@@ -638,7 +823,7 @@ function bootPhone() {
 
   if (window.PhoneAPI?.onCallUnanswered) {
     window.PhoneAPI.onCallUnanswered(() => {
-      window.PhoneAudio?.stop("ringtone");
+      stopIncomingRingtone();
       window.PhoneAudio?.stop("calling");
 
       if (window.CallsApp?._durationInterval) {
@@ -651,8 +836,13 @@ function bootPhone() {
         callSession: null,
         callsTab: "recents",
         currentApp: "calls",
+        previousApp: null,
       });
 
+      renderCallOverlay();
+      applyShellState();
+      if (homeScreen) homeScreen.style.display = "none";
+      if (appScreen) appScreen.style.display = "flex";
       renderCurrentApp();
       window.PhoneAPI?.getCalls?.();
 
@@ -667,7 +857,7 @@ function bootPhone() {
 
   if (window.PhoneAPI?.onCallUnavailable) {
     window.PhoneAPI.onCallUnavailable(() => {
-      window.PhoneAudio?.stop("ringtone");
+      stopIncomingRingtone();
       window.PhoneAudio?.stop("calling");
 
       window.PhoneApp.patchState({
@@ -675,8 +865,13 @@ function bootPhone() {
         callSession: null,
         callsTab: "recents",
         currentApp: "calls",
+        previousApp: null,
       });
 
+      renderCallOverlay();
+      applyShellState();
+      if (homeScreen) homeScreen.style.display = "none";
+      if (appScreen) appScreen.style.display = "flex";
       renderCurrentApp();
 
       window.PhoneUI?.notify?.({
@@ -690,7 +885,7 @@ function bootPhone() {
 
   if (window.PhoneAPI?.onCallBusy) {
     window.PhoneAPI.onCallBusy(() => {
-      window.PhoneAudio?.stop("ringtone");
+      stopIncomingRingtone();
       window.PhoneAudio?.stop("calling");
 
       window.PhoneApp.patchState({
@@ -698,8 +893,13 @@ function bootPhone() {
         callSession: null,
         callsTab: "recents",
         currentApp: "calls",
+        previousApp: null,
       });
 
+      renderCallOverlay();
+      applyShellState();
+      if (homeScreen) homeScreen.style.display = "none";
+      if (appScreen) appScreen.style.display = "flex";
       renderCurrentApp();
 
       window.PhoneUI?.notify?.({
@@ -760,9 +960,7 @@ function bootPhone() {
     });
   }
 
-  if (phoneShell) {
-    phoneShell.style.display = "none";
-  }
+  applyShellState();
 
   if (window.PhoneAPI?.ready) {
     window.PhoneAPI.ready();
@@ -872,6 +1070,8 @@ window.PhoneApp = {
   renderCurrentApp,
   renderHome,
   applyTheme,
+  applyShellState,
+  showNotificationPreview: showPhonePreview,
 };
 
 bootPhone();

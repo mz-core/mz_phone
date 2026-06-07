@@ -105,12 +105,22 @@ function getConversationAvatar(state, conversation) {
     String(conversation.target_number || "") === String(playerNumber) &&
     profilePhoto
   ) {
-    return getAvatarData(conversation.target_name, profilePhoto);
+    return getAvatarData(conversation.display_name || conversation.target_name, profilePhoto);
   }
 
   return getAvatarData(
-    conversation.target_name || conversation.target_number,
+    conversation.display_name || conversation.target_name || conversation.target_number,
     "",
+  );
+}
+
+function getConversationDisplayName(conversation) {
+  return (
+    conversation?.display_name ||
+    conversation?.displayName ||
+    conversation?.target_name ||
+    conversation?.target_number ||
+    "Sem conversa"
   );
 }
 
@@ -173,7 +183,7 @@ function renderList(ctx, state) {
     .trim();
 
   const filtered = conversations.filter((conv) => {
-    const name = String(conv.target_name || "").toLowerCase();
+    const name = String(getConversationDisplayName(conv)).toLowerCase();
     const number = String(conv.target_number || "").toLowerCase();
     const preview = getLastMessagePreview(state, conv.id).toLowerCase();
 
@@ -238,7 +248,7 @@ function renderConversationItem(state, conv) {
       </div>
 
       <div class="msg-info">
-        <div class="msg-name">${window.Utils.escapeHtml(conv.target_name || conv.target_number || "Sem conversa")}</div>
+        <div class="msg-name">${window.Utils.escapeHtml(getConversationDisplayName(conv))}</div>
         <div class="msg-last">${window.Utils.escapeHtml(preview)}</div>
       </div>
 
@@ -271,7 +281,7 @@ function renderChat(ctx, state) {
         <div class="app-header-center">
           <div class="msg-header-user">
             ${avatar ? renderAvatar(avatar, "msg-header-avatar") : ""}
-            <div class="app-title">${window.Utils.escapeHtml(conversation?.target_name || conversation?.target_number || "Conversa")}</div>
+          <div class="app-title">${window.Utils.escapeHtml(getConversationDisplayName(conversation) || "Conversa")}</div>
           </div>
         </div>
 
@@ -733,7 +743,7 @@ window.MessagesApp = {
     );
 
     const number = conversation?.target_number || "";
-    const name = conversation?.target_name || number || "Contato";
+    const name = getConversationDisplayName(conversation) || number || "Contato";
 
     if (!number) return;
 

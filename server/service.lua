@@ -121,6 +121,11 @@ local function buildDefaults(identity, phoneNumber)
         wallpaper = settings.wallpaper or 'default',
         customWallpaper = extraSettings.customWallpaper or '',
         ringtone = settings.ringtone or 'default',
+        audio = {
+            enabled = Config.Phone.Audio == nil or Config.Phone.Audio.Enabled ~= false,
+            defaultRingtone = Config.Phone.Audio and Config.Phone.Audio.DefaultRingtone or 'ringtone',
+            ringtoneVolume = Config.Phone.Audio and Config.Phone.Audio.RingtoneVolume or 0.45
+        },
         profilePhoto = settings.profile_photo or '',
         playerProfile = {
             firstname = identity.firstname or '',
@@ -442,7 +447,8 @@ function MZPhoneServer.Service.CreateConversation(source, data)
 
     data = type(data) == 'table' and data or {}
     local targetNumber = Security.NormalizePhone(data.target_number or data.number)
-    local targetName = Security.SanitizeText(data.target_name or data.name or targetNumber, Config.Security.NameMaxLength)
+    local targetName = Repository.FindContactNameByNumber(identity.citizenid, targetNumber)
+    targetName = targetName or Security.SanitizeText(data.target_name or data.name or targetNumber, Config.Security.NameMaxLength)
 
     if targetNumber == '' then
         return
@@ -493,7 +499,9 @@ function MZPhoneServer.Service.SendMessage(source, conversationId, data)
     end
 
     local senderNumber = MZPhoneServer.Service.EnsurePhoneNumber(identity)
-    local targetConversationId = Repository.CreateConversation(targetPhone.citizenid, senderNumber, fullName(identity))
+    local receiverContactName = Repository.FindContactNameByNumber(targetPhone.citizenid, senderNumber)
+    local senderDisplayName = receiverContactName or fullName(identity)
+    local targetConversationId = Repository.CreateConversation(targetPhone.citizenid, senderNumber, senderDisplayName)
     Repository.CreateMessage(targetPhone.citizenid, targetConversationId, {
         sender = 'other',
         message = message,
@@ -507,7 +515,7 @@ function MZPhoneServer.Service.SendMessage(source, conversationId, data)
         refreshConversation(targetSource, targetPhone.citizenid, targetConversationId)
         TriggerClientEvent('mz_phone:client:notify', targetSource, {
             type = 'message',
-            title = fullName(identity),
+            title = senderDisplayName,
             message = message,
             appLabel = 'Mensagens'
         })

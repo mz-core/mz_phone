@@ -105,6 +105,32 @@ local function getIdentityAndNumber(source, context)
     return identity, phoneNumber, nil
 end
 
+local function identityFallbackName(identity)
+    local name = ((identity.firstname or '') .. ' ' .. (identity.lastname or '')):gsub('^%s+', ''):gsub('%s+$', '')
+    if name == '' then
+        return nil
+    end
+
+    return name
+end
+
+local function resolveDisplayName(ownerCitizenid, remoteNumber, fallbackName)
+    local contactName = Repository.FindContactNameByNumber(ownerCitizenid, remoteNumber)
+    if contactName and contactName ~= '' then
+        return contactName
+    end
+
+    if fallbackName and fallbackName ~= '' then
+        return fallbackName
+    end
+
+    if remoteNumber and remoteNumber ~= '' then
+        return remoteNumber
+    end
+
+    return 'Desconhecido'
+end
+
 local function startRingTimeout(callId)
     local timeout = tonumber(callsConfig().RingTimeoutMs) or 30000
 
@@ -261,6 +287,8 @@ function Calls.StartCall(source, data)
     sendCallEvent(source, 'outgoingCallStarted', {
         callId = callId,
         targetNumber = receiverNumber,
+        displayName = resolveDisplayName(caller.citizenid, receiverNumber, receiverNumber),
+        fallbackName = receiverNumber,
         voiceAdapter = callsConfig().VoiceAdapter or 'none'
     })
 
@@ -268,6 +296,8 @@ function Calls.StartCall(source, data)
         sendCallEvent(receiverSource, 'incomingCall', {
             callId = callId,
             fromNumber = callerNumber,
+            displayName = resolveDisplayName(receiverCitizenid, callerNumber, identityFallbackName(caller) or callerNumber),
+            fallbackName = identityFallbackName(caller) or callerNumber,
             voiceAdapter = callsConfig().VoiceAdapter or 'none'
         })
     end
@@ -329,12 +359,14 @@ function Calls.AcceptCall(source, callId)
     sendCallEvent(callerSource, 'callAccepted', {
         callId = call.id,
         targetNumber = call.receiver_number,
+        displayName = resolveDisplayName(call.caller_citizenid, call.receiver_number, call.receiver_number),
         voiceAdapter = callsConfig().VoiceAdapter or 'none'
     })
 
     sendCallEvent(receiverSource, 'callAccepted', {
         callId = call.id,
         fromNumber = call.caller_number,
+        displayName = resolveDisplayName(call.receiver_citizenid, call.caller_number, call.caller_number),
         voiceAdapter = callsConfig().VoiceAdapter or 'none'
     })
 

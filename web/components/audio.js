@@ -1,5 +1,10 @@
 window.PhoneAudio = (() => {
   const active = new Map();
+  let ringtoneSource = "sounds/ringtone.ogg";
+
+  function getRingtoneElement() {
+    return document.getElementById("phone-ringtone");
+  }
 
   function stop(key) {
     const audio = active.get(key);
@@ -38,9 +43,58 @@ window.PhoneAudio = (() => {
     return audio;
   }
 
+  function setRingtoneSource(nameOrPath) {
+    const value = String(nameOrPath || "").trim();
+    if (!value) {
+      ringtoneSource = "sounds/ringtone.ogg";
+      return ringtoneSource;
+    }
+
+    if (
+      value.startsWith("http://") ||
+      value.startsWith("https://") ||
+      value.startsWith("nui://") ||
+      value.startsWith("sounds/") ||
+      value.includes("/")
+    ) {
+      ringtoneSource = value;
+      return ringtoneSource;
+    }
+
+    ringtoneSource = value.includes(".") ? `sounds/${value}` : `sounds/${value}.ogg`;
+    return ringtoneSource;
+  }
+
+  function playIncomingRingtone(options = {}) {
+    stop("ringtone");
+
+    const audio = getRingtoneElement() || new Audio();
+    const source = setRingtoneSource(options.source || ringtoneSource);
+
+    audio.src = source;
+    audio.loop = true;
+    audio.volume = typeof options.volume === "number" ? options.volume : 0.45;
+
+    try {
+      audio.currentTime = 0;
+    } catch (_) {}
+
+    active.set("ringtone", audio);
+    audio.play().catch(() => {});
+
+    return audio;
+  }
+
+  function stopIncomingRingtone() {
+    stop("ringtone");
+  }
+
   return {
     play,
     stop,
     stopAll,
+    setRingtoneSource,
+    playIncomingRingtone,
+    stopIncomingRingtone,
   };
 })();

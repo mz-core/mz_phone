@@ -20,6 +20,23 @@ body {
   height: var(--phone-height);
   z-index: 9999;
   display: none;
+  transform: translateY(112%);
+  opacity: 0;
+  transition:
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.18s ease;
+}
+
+#phoneShell.phone-open,
+#phoneShell.has-incoming-call,
+#phoneShell.has-active-call {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+#phoneShell.phone-peek {
+  transform: translateY(68%);
+  opacity: 1;
 }
 
 .phone-frame {
@@ -59,6 +76,45 @@ body {
   height: 100%;
   overflow: hidden;
   background: var(--screen-bg);
+}
+
+.phone-call-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 120;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 34%, rgba(0, 208, 132, 0.14), transparent 34%),
+    rgba(5, 8, 14, 0.94);
+  color: var(--text-primary);
+}
+
+.phone-call-overlay-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  padding: 74px 24px 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.phone-call-overlay .overlay-avatar {
+  position: relative;
+  z-index: 2;
+}
+
+.phone-call-overlay .incoming {
+  color: #63dfff;
+}
+
+.phone-call-overlay .overlay-actions {
+  position: relative;
+  z-index: 2;
 }
 
 .status-bar {
