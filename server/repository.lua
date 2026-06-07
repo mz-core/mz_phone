@@ -46,10 +46,20 @@ local function migrateLegacyColumns()
     renameColumnIfNeeded('mz_phone_calls', 'character_id', 'owner_citizenid', 'VARCHAR(64) NOT NULL')
     renameColumnIfNeeded('mz_phone_calls', 'citizenid', 'owner_citizenid', 'VARCHAR(64) NOT NULL')
 
-    renameColumnIfNeeded('mz_phone_gallery', 'character_id', 'citizenid', 'VARCHAR(64) NOT NULL')
+    renameColumnIfNeeded('mz_phone_gallery', 'character_id', 'owner_citizenid', 'VARCHAR(64) NOT NULL')
+    renameColumnIfNeeded('mz_phone_gallery', 'citizenid', 'owner_citizenid', 'VARCHAR(64) NOT NULL')
+    renameColumnIfNeeded('mz_phone_gallery', 'url', 'image_url', 'TEXT NOT NULL')
     renameColumnIfNeeded('mz_phone_apps', 'character_id', 'citizenid', 'VARCHAR(64) NOT NULL')
     renameColumnIfNeeded('mz_phone_settings', 'character_id', 'citizenid', 'VARCHAR(64) NOT NULL')
     renameColumnIfNeeded('mz_phone_notifications', 'character_id', 'citizenid', 'VARCHAR(64) NOT NULL')
+end
+
+local function migrateGalleryColumns()
+    addColumnIfMissing('mz_phone_gallery', 'thumbnail_url', 'TEXT NULL')
+    addColumnIfMissing('mz_phone_gallery', 'source', "VARCHAR(32) NOT NULL DEFAULT 'manual'")
+    addColumnIfMissing('mz_phone_gallery', 'favorite', 'TINYINT(1) NOT NULL DEFAULT 0')
+    addColumnIfMissing('mz_phone_gallery', 'metadata', 'JSON NULL')
+    addColumnIfMissing('mz_phone_gallery', 'deleted_at', 'TIMESTAMP NULL')
 end
 
 local function migrateCallColumns()
@@ -146,12 +156,18 @@ function Repository.Prepare()
 
     MySQL.query.await([[
         CREATE TABLE IF NOT EXISTS mz_phone_gallery (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            citizenid VARCHAR(64) NOT NULL,
-            url TEXT NOT NULL,
-            caption VARCHAR(160) DEFAULT NULL,
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            owner_citizenid VARCHAR(64) NOT NULL,
+            image_url TEXT NOT NULL,
+            thumbnail_url TEXT NULL,
+            caption VARCHAR(255) DEFAULT NULL,
+            source VARCHAR(32) NOT NULL DEFAULT 'manual',
+            favorite TINYINT(1) NOT NULL DEFAULT 0,
+            metadata JSON NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_mz_phone_gallery_citizenid (citizenid)
+            deleted_at TIMESTAMP NULL,
+            INDEX idx_mz_phone_gallery_owner (owner_citizenid),
+            INDEX idx_mz_phone_gallery_created (created_at)
         )
     ]])
 
@@ -198,6 +214,7 @@ function Repository.Prepare()
     ]])
 
     migrateLegacyColumns()
+    migrateGalleryColumns()
     migrateCallColumns()
 end
 
@@ -494,6 +511,115 @@ function Repository.MarkConversationRead(citizenid, conversationId)
         SET unread_count = 0
         WHERE id = ? AND owner_citizenid = ?
     ]], { conversationId, citizenid })
+end
+
+function Repository.CreateGalleryPhoto(ownerCitizenid, data)
+    data = type(data) == 'table' and data or {}
+
+    local photoId = MySQL.insert.await([[
+        INSERT INTO mz_phone_gallery (
+            owner_citizenid,
+            image_url,
+            thumbnail_url,
+            caption,
+            source,
+            favorite,
+            metadata
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ]], {
+        ownerCitizenid,
+        data.imageUrl,
+        data.thumbnailUrl,
+        data.caption,
+        data.source or 'manual',
+        data.favorite == true and 1 or 0,
+        json.encode(data.metadata or {})
+    })
+
+    return Repository.GetGalleryPhotoById(photoId)
+end
+
+function Repository.RegisterGalleryPhoto(ownerCitizenid, imageUrl, options)
+    options = type(options) == 'table' and options or {}
+
+    return Repository.CreateGalleryPhoto(ownerCitizenid, {
+        imageUrl = imageUrl,
+        thumbnailUrl = options.thumbnailUrl,
+        caption = options.caption,
+        source = options.source or 'camera',
+        favorite = options.favorite == true,
+        metadata = options.metadata or {}
+    })
+end
+
+function Repository.GetGalleryPhotos(ownerCitizenid, limit, offset)
+    limit = math.max(1, math.min(tonumber(limit) or 40, 200))
+    offset = math.max(0, tonumber(offset) or 0)
+
+    return MySQL.query.await([[
+        SELECT
+            id,
+            owner_citizenid,
+            image_url,
+            thumbnail_url,
+            caption,
+            source,
+            favorite,
+            metadata,
+            created_at,
+            deleted_at
+        FROM mz_phone_gallery
+        WHERE owner_citizenid = ? AND deleted_at IS NULL
+        ORDER BY favorite DESC, created_at DESC, id DESC
+        LIMIT ? OFFSET ?
+    ]], { ownerCitizenid, limit, offset }) or {}
+end
+
+function Repository.GetGalleryPhotoById(id)
+    id = tonumber(id)
+    if not id then
+        return nil
+    end
+
+    return MySQL.single.await([[
+        SELECT
+            id,
+            owner_citizenid,
+            image_url,
+            thumbnail_url,
+            caption,
+            source,
+            favorite,
+            metadata,
+            created_at,
+            deleted_at
+        FROM mz_phone_gallery
+        WHERE id = ?
+        LIMIT 1
+    ]], { id })
+end
+
+function Repository.DeleteGalleryPhoto(ownerCitizenid, photoId)
+    return MySQL.update.await([[
+        UPDATE mz_phone_gallery
+        SET deleted_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND owner_citizenid = ? AND deleted_at IS NULL
+    ]], { photoId, ownerCitizenid })
+end
+
+function Repository.ToggleGalleryFavorite(ownerCitizenid, photoId, favorite)
+    local updated = MySQL.update.await([[
+        UPDATE mz_phone_gallery
+        SET favorite = ?
+        WHERE id = ? AND owner_citizenid = ? AND deleted_at IS NULL
+    ]], { favorite == true and 1 or 0, photoId, ownerCitizenid })
+
+    if not updated or tonumber(updated) <= 0 then
+        return nil
+    end
+
+    return Repository.GetGalleryPhotoById(photoId)
 end
 
 function Repository.GetCallHistoryByCitizenId(citizenid, limit)

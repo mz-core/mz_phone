@@ -69,12 +69,18 @@ CREATE TABLE IF NOT EXISTS mz_phone_calls (
 );
 
 CREATE TABLE IF NOT EXISTS mz_phone_gallery (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    citizenid VARCHAR(64) NOT NULL,
-    url TEXT NOT NULL,
-    caption VARCHAR(160) DEFAULT NULL,
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    owner_citizenid VARCHAR(64) NOT NULL,
+    image_url TEXT NOT NULL,
+    thumbnail_url TEXT NULL,
+    caption VARCHAR(255) DEFAULT NULL,
+    source VARCHAR(32) NOT NULL DEFAULT 'manual',
+    favorite TINYINT(1) NOT NULL DEFAULT 0,
+    metadata JSON NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_mz_phone_gallery_citizenid (citizenid)
+    deleted_at TIMESTAMP NULL,
+    INDEX idx_mz_phone_gallery_owner (owner_citizenid),
+    INDEX idx_mz_phone_gallery_created (created_at)
 );
 
 CREATE TABLE IF NOT EXISTS mz_phone_apps (

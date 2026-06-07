@@ -124,6 +124,30 @@ window.AppContract = {
     },
   },
 
+  gallery: {
+    get(state) {
+      const list = Array.isArray(state.gallery) ? state.gallery : [];
+
+      return list.map((photo) => ({
+        id: photo.id ?? window.Utils.uid(),
+        image_url: photo.image_url ?? photo.imageUrl ?? photo.url ?? "",
+        thumbnail_url: photo.thumbnail_url ?? photo.thumbnailUrl ?? "",
+        caption: photo.caption ?? "",
+        source: photo.source ?? "manual",
+        favorite: photo.favorite === true || photo.favorite === 1,
+        created_at: photo.created_at ?? photo.createdAt ?? "",
+        metadata: photo.metadata && typeof photo.metadata === "object" ? photo.metadata : {},
+      }));
+    },
+
+    set(state, photos = []) {
+      return {
+        ...state,
+        gallery: this.get({ gallery: photos }),
+      };
+    },
+  },
+
   conversations: [],
   messages: {},
   selectedConversationId: null,

@@ -5,6 +5,7 @@ const homeIndicator = document.getElementById("homeIndicator");
 const statusClock = document.getElementById("statusClock");
 const phoneShell = document.getElementById("phoneShell");
 const callOverlay = document.getElementById("callOverlay");
+const cameraHud = document.getElementById("cameraHud");
 
 const DEFAULT_PHONE_STATE = {
   isOpen: false,
@@ -60,6 +61,11 @@ const DEFAULT_PHONE_STATE = {
   calls: [],
   callsTab: "recents",
   dialerValue: "",
+  gallery: [],
+  gallerySelectedPhotoId: null,
+  cameraBusy: false,
+  cameraError: "",
+  cameraLastPhoto: null,
   callSession: null,
   incomingCall: null,
   previousApp: null,
@@ -545,6 +551,69 @@ function handlePhoneClose() {
   applyShellState();
 }
 
+function renderCameraHud(visible, data = {}) {
+  if (!cameraHud) return;
+
+  if (!visible) {
+    cameraHud.classList.remove("is-visible");
+    cameraHud.style.display = "none";
+    cameraHud.innerHTML = "";
+    return;
+  }
+
+  const status = data.status || "ready";
+  const isError = status === "error";
+  const isCapturing = status === "capturing";
+  const showZoom = data.mode === "scripted" && data.zoom?.Enabled === true;
+  const errorLabel =
+    typeof window.cameraErrorMessage === "function"
+      ? window.cameraErrorMessage(data.error)
+      : "Nao foi possivel usar a camera.";
+
+  cameraHud.style.display = "block";
+  cameraHud.classList.add("is-visible");
+
+  cameraHud.innerHTML = `
+    <div class="camera-hud__frame" aria-hidden="true">
+      <span class="camera-hud__grid-horizontal"></span>
+      <span class="camera-hud__grid-horizontal"></span>
+    </div>
+
+    <div class="camera-hud__top">
+      <span class="camera-hud__record-dot"></span>
+      <span>MZ CAM</span>
+    </div>
+
+    ${
+      isCapturing || isError
+        ? `
+          <div class="camera-hud__status ${isError ? "is-error" : ""}">
+            <span>${window.Utils.escapeHtml(isError ? errorLabel : "Capturando...")}</span>
+          </div>
+        `
+        : `<div class="camera-hud__reticle" aria-hidden="true"></div>`
+    }
+
+    <div class="camera-hud__bottom">
+      <span>ENTER / Clique: tirar foto</span>
+      <span>ESC / Backspace: cancelar</span>
+      ${showZoom ? "<span>Scroll: zoom</span>" : ""}
+    </div>
+  `;
+}
+
+function handleCameraStatus(data = {}) {
+  if (data.ok === true) {
+    phoneState.cameraBusy = false;
+    phoneState.cameraError = "";
+    phoneState.cameraLastPhoto = data.photo || null;
+    return;
+  }
+
+  phoneState.cameraBusy = false;
+  phoneState.cameraError = data.error || "save_failed";
+}
+
 function bootPhone() {
   updateClock();
 
@@ -570,11 +639,33 @@ function bootPhone() {
     });
   }
 
+  window.addEventListener("message", (event) => {
+    const data = event.data || {};
+
+    if (data.action === "cameraHud") {
+      renderCameraHud(data.visible === true, data.data || {});
+    }
+
+    if (data.action === "cameraStatus") {
+      handleCameraStatus(data.data || {});
+    }
+  });
+
   if (window.PhoneAPI?.onReceiveCalls) {
     window.PhoneAPI.onReceiveCalls((data) => {
       phoneState.calls = Array.isArray(data) ? data : [];
 
       if (phoneState.currentApp === "calls") {
+        renderCurrentApp();
+      }
+    });
+  }
+
+  if (window.PhoneAPI?.onReceiveGallery) {
+    window.PhoneAPI.onReceiveGallery((data) => {
+      phoneState.gallery = Array.isArray(data) ? data : [];
+
+      if (phoneState.currentApp === "gallery") {
         renderCurrentApp();
       }
     });

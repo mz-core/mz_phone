@@ -11,6 +11,7 @@ window.PhoneAPI = (() => {
     receiveNotes: [],
     receiveContacts: [],
     receiveCalls: [],
+    receiveGallery: [],
     notify: [],
     receiveConversations: [],
     receiveConversationMessages: [],
@@ -89,6 +90,15 @@ window.PhoneAPI = (() => {
       return;
     }
 
+    if (action === "openApp") {
+      window.setTimeout(() => {
+        if (typeof window.openApp === "function") {
+          window.openApp(data.app || data.appId || "home");
+        }
+      }, 0);
+      return;
+    }
+
     if (action === "receiveNotes") {
       emit("receiveNotes", data.notes || []);
       return;
@@ -100,6 +110,10 @@ window.PhoneAPI = (() => {
 
     if (action === "receiveCalls") {
       emit("receiveCalls", data.calls || data.data || []);
+    }
+
+    if (action === "receiveGallery") {
+      emit("receiveGallery", data.photos || data.data || []);
     }
 
     if (action === "notify") {
@@ -387,6 +401,36 @@ window.PhoneAPI = (() => {
     onReceiveCalls(callback) {
       if (typeof callback === "function") {
         listeners.receiveCalls.push(callback);
+      }
+    },
+
+    async getGallery() {
+      return await post("getGallery", {});
+    },
+
+    async addGalleryPhoto(data) {
+      return await post("addGalleryPhoto", data || {});
+    },
+
+    async deleteGalleryPhoto(photoId) {
+      return await post("deleteGalleryPhoto", { photoId });
+    },
+
+    async toggleGalleryFavorite(photoId, favorite) {
+      return await post("toggleGalleryFavorite", { photoId, favorite });
+    },
+
+    async takePhoto(data = {}) {
+      return await post("takePhoto", data || {});
+    },
+
+    async openCameraMode(data = {}) {
+      return await post("openCameraMode", data || {});
+    },
+
+    onReceiveGallery(callback) {
+      if (typeof callback === "function") {
+        listeners.receiveGallery.push(callback);
       }
     },
 

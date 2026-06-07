@@ -4,7 +4,7 @@ game 'gta5'
 lua54 'yes'
 
 name 'mz_phone'
-author 'Mazus / OpenAI'
+author 'Mazus'
 description 'MZ Phone integrado ao mz_core'
 version '1.0.0'
 
@@ -31,6 +31,7 @@ client_scripts {
     'client/notifications.lua',
     'client/phone.lua',
     'client/calls.lua',
+    'client/camera.lua',
     'client/nui.lua',
     'client/main.lua'
 }

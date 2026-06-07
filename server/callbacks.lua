@@ -134,6 +134,68 @@ RegisterNetEvent('mz_phone:server:markConversationRead', function(conversationId
     end)
 end)
 
+RegisterNetEvent('mz_phone:server:getGallery', function()
+    local src = source
+    runSafe('getGallery', src, function()
+        Service.GetGallery(src)
+    end)
+end)
+
+RegisterNetEvent('mz_phone:server:addGalleryPhoto', function(data)
+    local src = source
+    runSafe('addGalleryPhoto', src, function()
+        Service.AddGalleryPhoto(src, data or {})
+    end)
+end)
+
+RegisterNetEvent('mz_phone:server:deleteGalleryPhoto', function(photoId)
+    local src = source
+    runSafe('deleteGalleryPhoto', src, function()
+        Service.DeleteGalleryPhoto(src, photoId)
+    end)
+end)
+
+RegisterNetEvent('mz_phone:server:toggleGalleryFavorite', function(photoId, favorite)
+    local src = source
+    runSafe('toggleGalleryFavorite', src, function()
+        Service.ToggleGalleryFavorite(src, photoId, favorite)
+    end)
+end)
+
+RegisterNetEvent('mz_phone:server:saveCameraPhoto', function(requestId, imageUrl, metadata)
+    local src = source
+    local safeRequestId = tostring(requestId or '')
+
+    local ok, photoOrErr, err = xpcall(function()
+        return Service.SaveCameraPhoto(src, imageUrl, metadata or {})
+    end, debug.traceback)
+
+    if not ok then
+        Security.Log('camera_error', src, ('request=%s error=%s'):format(safeRequestId, tostring(photoOrErr)), true)
+        TriggerClientEvent('mz_phone:client:cameraPhotoSaved', src, {
+            requestId = safeRequestId,
+            ok = false,
+            error = 'internal_error'
+        })
+        return
+    end
+
+    if not photoOrErr then
+        TriggerClientEvent('mz_phone:client:cameraPhotoSaved', src, {
+            requestId = safeRequestId,
+            ok = false,
+            error = err or 'save_failed'
+        })
+        return
+    end
+
+    TriggerClientEvent('mz_phone:client:cameraPhotoSaved', src, {
+        requestId = safeRequestId,
+        ok = true,
+        photo = photoOrErr
+    })
+end)
+
 RegisterNetEvent('mz_phone:server:getCalls', function()
     local src = source
     runSafe('getCalls', src, function()

@@ -101,6 +101,51 @@ RegisterNUICallback('markConversationRead', function(data, cb)
     ok(cb)
 end)
 
+RegisterNUICallback('getGallery', function(_, cb)
+    nuiLog('getGallery', 'request gallery')
+    TriggerServerEvent('mz_phone:server:getGallery')
+    ok(cb)
+end)
+
+RegisterNUICallback('addGalleryPhoto', function(data, cb)
+    nuiLog('addGalleryPhoto', 'add gallery photo')
+    TriggerServerEvent('mz_phone:server:addGalleryPhoto', data or {})
+    ok(cb)
+end)
+
+RegisterNUICallback('deleteGalleryPhoto', function(data, cb)
+    nuiLog('deleteGalleryPhoto', ('id=%s'):format(tostring(data and data.photoId)))
+    TriggerServerEvent('mz_phone:server:deleteGalleryPhoto', data and data.photoId)
+    ok(cb)
+end)
+
+RegisterNUICallback('toggleGalleryFavorite', function(data, cb)
+    TriggerServerEvent('mz_phone:server:toggleGalleryFavorite', data and data.photoId, data and data.favorite == true)
+    ok(cb)
+end)
+
+RegisterNUICallback('openCameraMode', function(data, cb)
+    nuiLog('openCameraMode', 'camera mode requested')
+
+    if MZPhone.Camera and MZPhone.Camera.StartCameraMode then
+        MZPhone.Camera.StartCameraMode(data or {}, cb)
+        return
+    end
+
+    ok(cb, { ok = false, error = 'camera_unavailable' })
+end)
+
+RegisterNUICallback('takePhoto', function(data, cb)
+    nuiLog('takePhoto', 'camera capture requested')
+
+    if MZPhone.Camera and MZPhone.Camera.TakePhoto then
+        MZPhone.Camera.TakePhoto(data or {}, cb)
+        return
+    end
+
+    ok(cb, { ok = false, error = 'camera_unavailable' })
+end)
+
 RegisterNUICallback('getCalls', function(_, cb)
     TriggerServerEvent('mz_phone:server:getCalls')
     ok(cb)
@@ -174,4 +219,8 @@ end)
 
 RegisterNetEvent('mz_phone:client:receiveCalls', function(data)
     SendNUIMessage({ action = 'receiveCalls', calls = data or {} })
+end)
+
+RegisterNetEvent('mz_phone:client:receiveGallery', function(data)
+    SendNUIMessage({ action = 'receiveGallery', photos = data or {} })
 end)

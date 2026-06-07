@@ -38,6 +38,101 @@ local function decodeSettingsJson(value)
     return {}
 end
 
+local function galleryConfig()
+    return Config.Phone and Config.Phone.Gallery or {}
+end
+
+local function cameraConfig()
+    return Config.Phone and Config.Phone.Camera or {}
+end
+
+local function galleryPageSize()
+    local cfg = galleryConfig()
+    return tonumber(cfg.PageSize) or 40
+end
+
+local function galleryMaxPhotos()
+    local cfg = galleryConfig()
+    return tonumber(cfg.MaxPhotos) or 200
+end
+
+local function cameraMaxPhotos()
+    local cfg = cameraConfig()
+    return tonumber(cfg.MaxPhotosPerUser) or galleryMaxPhotos()
+end
+
+local function isGalleryEnabled()
+    return galleryConfig().Enabled ~= false
+end
+
+local function validImageUrl(value)
+    value = Security.SanitizeText(value, 1000)
+    if value == '' then
+        return false, 'invalid_url'
+    end
+
+    if value:find('[%s<>"]') then
+        return false, 'invalid_url'
+    end
+
+    local scheme = value:match('^([%a][%w+%-%.]*):')
+    if scheme then
+        scheme = scheme:lower()
+        local allowedSchemes = galleryConfig().AllowedImageSchemes or {}
+        if allowedSchemes[scheme] == true then
+            return true, nil, value
+        end
+
+        return false, 'scheme_not_allowed'
+    end
+
+    local prefixes = galleryConfig().AllowedLocalPrefixes or {}
+    for _, prefix in ipairs(prefixes) do
+        prefix = tostring(prefix or '')
+        if prefix ~= '' and value:sub(1, #prefix) == prefix and not value:find('%.%.', 1, true) then
+            return true, nil, value
+        end
+    end
+
+    return false, 'local_path_not_allowed'
+end
+
+local function normalizeGalleryPhoto(row)
+    if type(row) ~= 'table' then
+        return nil
+    end
+
+    local metadata = {}
+    if type(row.metadata) == 'string' and row.metadata ~= '' then
+        local ok, decoded = pcall(json.decode, row.metadata)
+        if ok and type(decoded) == 'table' then
+            metadata = decoded
+        end
+    elseif type(row.metadata) == 'table' then
+        metadata = row.metadata
+    end
+
+    return {
+        id = row.id,
+        image_url = row.image_url or row.url or '',
+        thumbnail_url = row.thumbnail_url or '',
+        caption = row.caption or '',
+        source = row.source or 'manual',
+        favorite = row.favorite == true or tonumber(row.favorite) == 1,
+        metadata = metadata,
+        created_at = row.created_at or '',
+        deleted_at = row.deleted_at or nil
+    }
+end
+
+local function normalizeGalleryList(rows)
+    local out = {}
+    for _, row in ipairs(rows or {}) do
+        out[#out + 1] = normalizeGalleryPhoto(row)
+    end
+    return out
+end
+
 local function ensureSettings(identity)
     local settings = Repository.GetSettings(identity.citizenid)
     if settings then
@@ -109,6 +204,7 @@ local function buildDefaults(identity, phoneNumber)
     local contacts = Repository.GetContacts(identity.citizenid)
     local conversations = Repository.GetConversations(identity.citizenid)
     local calls = Repository.GetCalls(identity.citizenid)
+    local gallery = isGalleryEnabled() and normalizeGalleryList(Repository.GetGalleryPhotos(identity.citizenid, galleryPageSize(), 0)) or {}
 
     Security.Log(
         'load',
@@ -138,6 +234,8 @@ local function buildDefaults(identity, phoneNumber)
         contacts = contacts,
         conversations = conversations,
         calls = calls,
+        gallery = gallery,
+        gallerySelectedPhotoId = nil,
         notes = {},
         noteDraft = '',
         contactSearch = '',
@@ -531,6 +629,136 @@ function MZPhoneServer.Service.MarkConversationRead(source, conversationId)
 
     Repository.MarkConversationRead(identity.citizenid, conversationId)
     TriggerClientEvent('mz_phone:client:receiveConversations', source, Repository.GetConversations(identity.citizenid))
+end
+
+local function sendGallery(source, citizenid)
+    TriggerClientEvent('mz_phone:client:receiveGallery', source, normalizeGalleryList(
+        Repository.GetGalleryPhotos(citizenid, galleryPageSize(), 0)
+    ))
+end
+
+function MZPhoneServer.Service.GetGallery(source)
+    if not isGalleryEnabled() then
+        TriggerClientEvent('mz_phone:client:receiveGallery', source, {})
+        return
+    end
+
+    local identity = Security.RequireIdentity(source, { context = 'get_gallery' })
+    if not identity then return end
+
+    sendGallery(source, identity.citizenid)
+end
+
+function MZPhoneServer.Service.RegisterCameraPhoto(source, imageUrl, metadata)
+    if not isGalleryEnabled() then
+        return nil, 'gallery_disabled'
+    end
+
+    if not Security.RateLimit(source, 'gallery') then
+        return nil, 'rate_limited'
+    end
+
+    local identity = Security.RequireIdentity(source, { context = 'register_camera_photo' })
+    if not identity then
+        return nil, 'identity_unavailable'
+    end
+
+    local maxPhotos = cameraMaxPhotos()
+    local photos = Repository.GetGalleryPhotos(identity.citizenid, maxPhotos, 0)
+    if #photos >= maxPhotos then
+        return nil, 'gallery_limit_reached'
+    end
+
+    local okUrl, urlErr, normalizedUrl = validImageUrl(imageUrl)
+    if not okUrl then
+        return nil, urlErr or 'invalid_url'
+    end
+
+    local photo = Repository.RegisterGalleryPhoto(identity.citizenid, normalizedUrl, {
+        source = 'camera',
+        metadata = type(metadata) == 'table' and metadata or {}
+    })
+
+    sendGallery(source, identity.citizenid)
+    return normalizeGalleryPhoto(photo), nil
+end
+
+function MZPhoneServer.Service.SaveCameraPhoto(source, imageUrl, metadata)
+    metadata = type(metadata) == 'table' and metadata or {}
+    metadata.created_by = 'mz_phone_camera'
+
+    return MZPhoneServer.Service.RegisterCameraPhoto(source, imageUrl, metadata)
+end
+
+function MZPhoneServer.Service.AddGalleryPhoto(source, payload)
+    if not isGalleryEnabled() then return false, 'gallery_disabled' end
+    if galleryConfig().AllowManualUrlAdd ~= true then return false, 'manual_add_disabled' end
+    if not Security.RateLimit(source, 'gallery') then return false, 'rate_limited' end
+
+    local identity = Security.RequireIdentity(source, { context = 'add_gallery_photo' })
+    if not identity then return false, 'identity_unavailable' end
+
+    payload = type(payload) == 'table' and payload or {}
+    local photos = Repository.GetGalleryPhotos(identity.citizenid, galleryMaxPhotos(), 0)
+    if #photos >= galleryMaxPhotos() then
+        return false, 'gallery_limit_reached'
+    end
+
+    local okUrl, urlErr, normalizedUrl = validImageUrl(payload.image_url or payload.imageUrl or payload.url)
+    if not okUrl then return false, urlErr or 'invalid_url' end
+
+    local okThumb, _, normalizedThumb = true, nil, ''
+    local rawThumb = payload.thumbnail_url or payload.thumbnailUrl or ''
+    if rawThumb ~= '' then
+        okThumb, _, normalizedThumb = validImageUrl(rawThumb)
+        if not okThumb then
+            normalizedThumb = ''
+        end
+    end
+
+    local photo = Repository.CreateGalleryPhoto(identity.citizenid, {
+        imageUrl = normalizedUrl,
+        thumbnailUrl = normalizedThumb ~= '' and normalizedThumb or nil,
+        caption = Security.SanitizeText(payload.caption or '', 255),
+        source = Security.SanitizeText(payload.source or 'manual', 32),
+        favorite = payload.favorite == true,
+        metadata = type(payload.metadata) == 'table' and payload.metadata or {}
+    })
+
+    sendGallery(source, identity.citizenid)
+    return normalizeGalleryPhoto(photo), nil
+end
+
+function MZPhoneServer.Service.DeleteGalleryPhoto(source, photoId)
+    if not isGalleryEnabled() then return false, 'gallery_disabled' end
+    if not Security.RateLimit(source, 'gallery') then return false, 'rate_limited' end
+
+    local identity = Security.RequireIdentity(source, { context = 'delete_gallery_photo' })
+    if not identity then return false, 'identity_unavailable' end
+
+    photoId = tonumber(photoId)
+    if not photoId then return false, 'invalid_photo' end
+
+    local affected = Repository.DeleteGalleryPhoto(identity.citizenid, photoId)
+    sendGallery(source, identity.citizenid)
+
+    return tonumber(affected) and tonumber(affected) > 0, affected
+end
+
+function MZPhoneServer.Service.ToggleGalleryFavorite(source, photoId, favorite)
+    if not isGalleryEnabled() then return false, 'gallery_disabled' end
+    if not Security.RateLimit(source, 'gallery') then return false, 'rate_limited' end
+
+    local identity = Security.RequireIdentity(source, { context = 'toggle_gallery_favorite' })
+    if not identity then return false, 'identity_unavailable' end
+
+    photoId = tonumber(photoId)
+    if not photoId then return false, 'invalid_photo' end
+
+    local photo = Repository.ToggleGalleryFavorite(identity.citizenid, photoId, favorite == true)
+    sendGallery(source, identity.citizenid)
+
+    return normalizeGalleryPhoto(photo), photo and nil or 'not_found'
 end
 
 function MZPhoneServer.Service.GetCalls(source)
