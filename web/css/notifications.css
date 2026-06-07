@@ -1,0 +1,143 @@
+#phone-notifications {
+  position: absolute;
+  top: 54px;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+.phone-notify {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 10px 12px;
+  border-radius: 18px;
+  background: rgba(15, 18, 26, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: white;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.28);
+  transform: translateY(-12px) scale(0.98);
+  opacity: 0;
+  transition:
+    transform 0.22s ease,
+    opacity 0.22s ease;
+}
+
+:root[data-theme="light"] .phone-notify {
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  color: #111111;
+}
+
+.phone-notify.show {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+}
+
+.phone-notify-media {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.phone-notify-icon,
+.phone-notify-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.phone-notify-icon {
+  background: rgba(255, 255, 255, 0.08);
+  color: white;
+}
+
+:root[data-theme="light"] .phone-notify-icon {
+  background: rgba(17, 17, 17, 0.08);
+  color: #111111;
+}
+
+.phone-notify-icon svg {
+  width: 19px;
+  height: 19px;
+  stroke-width: 2.2;
+}
+
+.phone-notify-avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+.phone-notify-content {
+  min-width: 0;
+}
+
+.phone-notify-app {
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0.7;
+  margin-bottom: 2px;
+}
+
+.phone-notify-title {
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.15;
+  color: inherit;
+}
+
+.phone-notify-msg {
+  font-size: 12px;
+  line-height: 1.3;
+  opacity: 0.88;
+  margin-top: 3px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.phone-notify.success .phone-notify-icon {
+  background: rgba(11, 191, 106, 0.18);
+  color: #32e68d;
+}
+
+.phone-notify.error .phone-notify-icon {
+  background: rgba(255, 59, 59, 0.18);
+  color: #ff6b6b;
+}
+
+.phone-notify.warning .phone-notify-icon {
+  background: rgba(255, 193, 7, 0.18);
+  color: #ffd34d;
+}
+
+.phone-notify.info .phone-notify-icon {
+  background: rgba(79, 140, 255, 0.18);
+  color: #7fb0ff;
+}
+
+.phone-notify.message .phone-notify-icon {
+  background: rgba(51, 199, 89, 0.18);
+  color: #53db7b;
+}
+
+.phone-notify.call .phone-notify-icon {
+  background: rgba(52, 215, 255, 0.18);
+  color: #63dfff;
+}
+.phone-notify-app.message-app {
+  color: #53db7b;
+}

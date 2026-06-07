@@ -1,0 +1,484 @@
+.settings-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(10px);
+}
+
+:root[data-theme="light"] .settings-group {
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(17, 17, 17, 0.08);
+}
+
+.settings-row-button {
+  width: 100%;
+  min-height: 74px;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background: transparent;
+  color: var(--text-primary);
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+  cursor: pointer;
+}
+
+:root[data-theme="light"] .settings-row-button {
+  border-bottom: 1px solid rgba(17, 17, 17, 0.06);
+}
+
+.settings-row-button:last-child {
+  border-bottom: 0;
+}
+
+.settings-row-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.settings-row-right {
+  display: flex;
+  align-items: center;
+  color: var(--text-secondary);
+}
+
+.settings-row-right svg {
+  width: 18px;
+  height: 18px;
+}
+
+.settings-row-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  flex-shrink: 0;
+}
+
+.settings-row-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.settings-row-icon.bg-blue {
+  background: linear-gradient(180deg, #4f8cff, #2e6eff);
+}
+
+.settings-row-icon.bg-violet {
+  background: linear-gradient(180deg, #8b6bff, #5e4bff);
+}
+
+.settings-row-icon.bg-cyan {
+  background: linear-gradient(180deg, #34d7ff, #0aa8f5);
+}
+
+.settings-row-icon.bg-slate {
+  background: linear-gradient(180deg, #7b8aa0, #5b687c);
+}
+
+.settings-row-texts {
+  min-width: 0;
+}
+
+.settings-row-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-title);
+}
+
+.settings-row-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.settings-profile-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 18px 16px 12px;
+}
+
+.settings-profile-avatar-wrap {
+  position: relative;
+  width: 108px;
+  height: 108px;
+  margin-bottom: 14px;
+}
+
+.settings-profile-avatar {
+  width: 108px;
+  height: 108px;
+  border-radius: 999px;
+  object-fit: cover;
+  border: 2px solid rgba(255, 255, 255, 0.08);
+}
+
+.settings-profile-avatar.placeholder {
+  width: 108px;
+  height: 108px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  border: 2px solid rgba(255, 255, 255, 0.08);
+}
+
+.settings-profile-avatar.placeholder svg {
+  width: 42px;
+  height: 42px;
+}
+
+:root[data-theme="light"] .settings-profile-avatar.placeholder {
+  background: rgba(17, 17, 17, 0.05);
+  border-color: rgba(17, 17, 17, 0.08);
+}
+
+.settings-avatar-add {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #4f8cff, #2e6eff);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.settings-avatar-add svg {
+  width: 16px;
+  height: 16px;
+}
+
+.settings-profile-name {
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--text-title);
+  text-align: center;
+}
+
+.settings-profile-number {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  text-align: center;
+}
+
+.settings-info-row {
+  min-height: 54px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+:root[data-theme="light"] .settings-info-row {
+  border-bottom: 1px solid rgba(17, 17, 17, 0.06);
+}
+
+.settings-info-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-info-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-title);
+}
+
+.settings-info-value {
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-align: right;
+  max-width: 60%;
+  word-break: break-word;
+}
+
+.settings-theme-button {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  cursor: pointer;
+}
+
+:root[data-theme="light"] .settings-theme-button {
+  border-bottom: 1px solid rgba(17, 17, 17, 0.06);
+}
+
+.settings-theme-button:last-child {
+  border-bottom: 0;
+}
+
+.settings-theme-button.is-active {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+:root[data-theme="light"] .settings-theme-button.is-active {
+  background: rgba(17, 17, 17, 0.04);
+}
+
+.settings-theme-preview {
+  width: 54px;
+  height: 54px;
+  border-radius: 16px;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.settings-theme-preview.dark {
+  background: linear-gradient(180deg, #101218, #05070d);
+}
+
+.settings-theme-preview.light {
+  background: linear-gradient(180deg, #ffffff, #edf1f8);
+  border-color: rgba(17, 17, 17, 0.08);
+}
+
+.settings-theme-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-title);
+}
+
+.settings-wallpaper-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.settings-wallpaper-item,
+.settings-wallpaper-add {
+  border: 1px solid var(--app-card-border);
+  background: var(--app-card-bg);
+  border-radius: 18px;
+  padding: 8px;
+  cursor: pointer;
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.settings-wallpaper-item.is-selected {
+  border-color: rgba(79, 140, 255, 0.9);
+  box-shadow: inset 0 0 0 1px rgba(79, 140, 255, 0.35);
+}
+
+.settings-wallpaper-preview {
+  width: 100%;
+  height: 88px;
+  border-radius: 14px;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  margin-bottom: 8px;
+}
+
+.settings-wallpaper-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.settings-wallpaper-add {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.settings-wallpaper-add-icon {
+  width: 100%;
+  height: 88px;
+  border-radius: 14px;
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+:root[data-theme="light"] .settings-wallpaper-add-icon {
+  border-color: rgba(17, 17, 17, 0.18);
+}
+
+.settings-wallpaper-add-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.settings-about-card {
+  min-height: 220px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+:root[data-theme="light"] .settings-about-card {
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(17, 17, 17, 0.08);
+}
+
+.settings-about-icon {
+  width: 68px;
+  height: 68px;
+  border-radius: 20px;
+  background: linear-gradient(180deg, #4f8cff, #2e6eff);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 14px;
+}
+
+.settings-about-icon svg {
+  width: 28px;
+  height: 28px;
+}
+
+.settings-about-title {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--text-title);
+}
+
+.settings-about-version {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.settings-inline-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.42);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px;
+  z-index: 40;
+}
+
+.settings-inline-modal {
+  width: 100%;
+  border-radius: 22px;
+  background: #111827;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+:root[data-theme="light"] .settings-inline-modal {
+  background: #ffffff;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+}
+
+.settings-inline-modal-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text-title);
+  text-align: center;
+  margin-bottom: 4px;
+}
+
+.settings-modal-option,
+.settings-modal-cancel {
+  width: 100%;
+  min-height: 46px;
+  border: 0;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+:root[data-theme="light"] .settings-modal-option,
+:root[data-theme="light"] .settings-modal-cancel {
+  background: rgba(17, 17, 17, 0.05);
+}
+
+.settings-modal-option svg {
+  width: 18px;
+  height: 18px;
+}
+
+.settings-modal-input {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  outline: none;
+  padding: 0 14px;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+:root[data-theme="light"] .settings-modal-input {
+  border: 1px solid rgba(17, 17, 17, 0.1);
+  background: rgba(17, 17, 17, 0.04);
+}
+
+.settings-modal-option.primary {
+  background: linear-gradient(180deg, #4f8cff, #2e6eff);
+  color: white;
+}
+
+:root {
+  --settings-wallpaper-default: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/default.webp");
+  --settings-wallpaper-firewatch: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/firewatch.webp");
+  --settings-wallpaper-iphone14: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/iphone14.webp");
+  --settings-wallpaper-iphone1444: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/iphone1444.webp");
+  --settings-wallpaper-iphonex: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/iphonex.webp");
+  --settings-wallpaper-maravilhosa: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/maravilhosa.png");
+  --settings-wallpaper-moon: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/moon.webp");
+  --settings-wallpaper-mtfuji: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/mtfuji.webp");
+  --settings-wallpaper-s20: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/s20.webp");
+  --settings-wallpaper-s9: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/s9.webp");
+  --settings-wallpaper-taiwan: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/taiwan.webp");
+  --settings-wallpaper-vaporwave: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/vaporwave.webp");
+}
+
+

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>mz_phone</title>
+
+    <link rel="stylesheet" href="css/reset.css" />
+    <link rel="stylesheet" href="css/tokens.css" />
+    <link rel="stylesheet" href="css/shell.css" />
+    <link rel="stylesheet" href="css/home.css" />
+    <link rel="stylesheet" href="css/apps.css" />
+    <link rel="stylesheet" href="css/notifications.css" />
+
+    <link rel="stylesheet" href="css/apps/settings.css" />
+    <link rel="stylesheet" href="css/apps/notes.css" />
+    <link rel="stylesheet" href="css/apps/contacts.css" />
+    <link rel="stylesheet" href="css/apps/messages.css" />
+    <link rel="stylesheet" href="css/apps/calls.css" />
+  </head>
+  <body>
+    <div id="phoneShell" class="phone-shell">
+      <div class="phone-frame">
+        <div class="phone-notch"></div>
+
+        <div class="phone-screen">
+          <div class="status-bar">
+            <div id="statusClock" class="status-time">00:00</div>
+
+            <div class="status-icons">
+              <span class="status-icon">
+                <i data-lucide="signal-high"></i>
+              </span>
+              <span class="status-icon">
+                <i data-lucide="wifi"></i>
+              </span>
+              <span class="status-icon">
+                <i data-lucide="battery-full"></i>
+              </span>
+            </div>
+          </div>
+
+          <div id="homeScreen" class="home-screen"></div>
+
+          <div id="appScreen" class="app-screen" style="display: none">
+            <div id="appContent" class="app-content-root"></div>
+          </div>
+
+          <button
+            id="homeIndicator"
+            class="home-indicator"
+            aria-label="Home"
+          ></button>
+        </div>
+      </div>
+    </div>
+
+    <script src="lucide.min.js"></script>
+
+    <script src="apps/utils.js"></script>
+    <script src="apps/registry.js"></script>
+    <script src="app_contract.js"></script>
+    <script src="api.js"></script>
+
+    <script src="components/audio.js"></script>
+    <script src="components/notifications.js"></script>
+
+    <script src="apps/settings.js"></script>
+    <script src="apps/notes.js"></script>
+    <script src="apps/contacts.js"></script>
+    <script src="apps/messages.js"></script>
+    <script src="apps/calls.js"></script>
+
+    <script src="app.js"></script>
+  </body>
+</html>

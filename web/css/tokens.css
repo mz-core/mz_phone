@@ -1,0 +1,75 @@
+:root {
+  --phone-width: 320px;
+  --phone-height: 680px;
+  --phone-radius: 42px;
+
+  --shell-bg: #0a0a0f;
+  --screen-bg: #11131a;
+  --shell-border: rgba(255, 255, 255, 0.06);
+  --notch-bg: #000000;
+
+  --text-title: #ffffff;
+  --text-status: #ffffff;
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.75);
+
+  --app-card-bg: rgba(255, 255, 255, 0.12);
+  --app-card-border: rgba(255, 255, 255, 0.08);
+  --app-card-text: #ffffff;
+
+  --dock-bg: rgba(255, 255, 255, 0.08);
+  --indicator-bg: rgba(255, 255, 255, 0.92);
+
+  --status-height: 44px;
+  --status-icon-size: 15px;
+  --content-padding: 14px;
+
+  --shadow-phone:
+    0 24px 80px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+  --note-accent-1: #3b82f6;
+  --note-accent-2: #22c55e;
+  --note-accent-3: #f59e0b;
+  --note-accent-4: #ef4444;
+  --note-accent-5: #8b5cf6;
+
+  --home-wallpaper: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/default.webp");
+}
+
+:root[data-theme="light"] {
+  --screen-bg: #f4f6fb;
+  --notch-bg: #000000;
+
+  --text-title: #0a0a0a;
+  --text-status: #ffffff;
+  --text-primary: #111111;
+  --text-secondary: rgba(17, 17, 17, 0.72);
+
+  --app-card-bg: rgba(255, 255, 255, 0.72);
+  --app-card-border: rgba(17, 17, 17, 0.08);
+  --app-card-text: #000000;
+
+  --dock-bg: rgba(255, 255, 255, 0.66);
+  --indicator-bg: rgba(17, 17, 17, 0.18);
+
+  --shell-border: rgba(17, 17, 17, 0.08);
+}
+
+:root[data-theme="dark"] {
+  --screen-bg: #11131a;
+  --notch-bg: #000000;
+
+  --text-title: #ffffff;
+  --text-status: #ffffff;
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.75);
+
+  --app-card-bg: rgba(255, 255, 255, 0.12);
+  --app-card-border: rgba(255, 255, 255, 0.08);
+  --app-card-text: #ffffff;
+
+  --dock-bg: rgba(255, 255, 255, 0.08);
+  --indicator-bg: rgba(255, 255, 255, 0.92);
+
+  --shell-border: rgba(255, 255, 255, 0.06);
+}

@@ -1,0 +1,229 @@
+html,
+body {
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: transparent;
+}
+
+#phoneShell.phone-shell {
+  position: fixed;
+  right: 30px;
+  bottom: 30px;
+  width: var(--phone-width);
+  height: var(--phone-height);
+  z-index: 9999;
+  display: none;
+}
+
+.phone-frame {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--phone-radius);
+  overflow: hidden;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.04) 0%,
+      rgba(255, 255, 255, 0.01) 100%
+    ),
+    var(--shell-bg);
+  border: 1px solid var(--shell-border);
+  box-shadow: var(--shadow-phone);
+}
+
+.phone-notch {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 132px;
+  height: 30px;
+  border-radius: 18px;
+  background: var(--notch-bg);
+  z-index: 20;
+  pointer-events: none;
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.phone-screen {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--screen-bg);
+}
+
+.status-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--status-height);
+  padding: 0 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 15;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: var(--text-title);
+  pointer-events: none;
+}
+
+#statusClock,
+.status-time {
+  display: flex;
+  align-items: center;
+  min-width: 52px;
+  color: var(--text-status);
+}
+
+.status-icons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-status);
+}
+
+.status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.status-icon svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 2.1;
+}
+
+#homeScreen,
+.home-screen,
+#appScreen,
+.app-screen {
+  position: absolute;
+  top: var(--status-height);
+  left: 0;
+  right: 0;
+  bottom: 34px;
+  overflow: hidden;
+}
+
+#homeScreen,
+.home-screen {
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.18)),
+    var(--home-wallpaper, none);
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+}
+
+#appScreen,
+.app-screen {
+  background: var(--screen-bg);
+}
+
+#appContent,
+.app-content-root {
+  width: 100%;
+  height: 100%;
+}
+
+.home-indicator {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%) translateY(0) scale(1);
+  width: 120px;
+  height: 5px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--indicator-bg);
+  opacity: 0.95;
+  z-index: 25;
+  cursor: pointer;
+  padding: 0;
+  transition:
+    transform 0.12s ease,
+    opacity 0.12s ease,
+    box-shadow 0.12s ease;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.home-indicator:hover {
+  opacity: 1;
+}
+
+.home-indicator:active {
+  transform: translateX(-50%) translateY(1px) scale(0.96);
+  box-shadow:
+    0 0 0 rgba(255, 255, 255, 0),
+    inset 0 2px 3px rgba(0, 0, 0, 0.22);
+}
+
+svg {
+  shape-rendering: geometricPrecision;
+}
+
+/* wallpapers */
+
+:root[data-wallpaper="default"] {
+  --home-wallpaper: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/default.webp");
+}
+
+:root[data-wallpaper="firewatch"] {
+  --home-wallpaper: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/firewatch.webp");
+}
+
+:root[data-wallpaper="iphone14"] {
+  --home-wallpaper: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/iphone14.webp");
+}
+
+:root[data-wallpaper="iphone1444"] {
+  --home-wallpaper: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/iphone1444.webp");
+}
+
+:root[data-wallpaper="iphonex"] {
+  --home-wallpaper: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/iphonex.webp");
+}
+
+:root[data-wallpaper="maravilhosa"] {
+  --home-wallpaper: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/maravilhosa.png");
+}
+
+:root[data-wallpaper="moon"] {
+  --home-wallpaper: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/moon.webp");
+}
+
+:root[data-wallpaper="mtfuji"] {
+  --home-wallpaper: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/mtfuji.webp");
+}
+
+:root[data-wallpaper="s20"] {
+  --home-wallpaper: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/s20.webp");
+}
+
+:root[data-wallpaper="s9"] {
+  --home-wallpaper: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/s9.webp");
+}
+
+:root[data-wallpaper="taiwan"] {
+  --home-wallpaper: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/taiwan.webp");
+}
+
+:root[data-wallpaper="vaporwave"] {
+  --home-wallpaper: url("https://fivem.mazinho.org/mz_phone_server/core/wallpapers/vaporwave.webp");
+}
