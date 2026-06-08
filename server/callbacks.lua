@@ -64,6 +64,34 @@ RegisterNetEvent('mz_phone:server:save', function(data)
     end)
 end)
 
+RegisterNetEvent('mz_phone:server:getNotes', function()
+    local src = source
+    runSafe('getNotes', src, function()
+        Service.GetNotes(src)
+    end)
+end)
+
+RegisterNetEvent('mz_phone:server:createNote', function(data)
+    local src = source
+    runSafe('createNote', src, function()
+        Service.CreateNote(src, data or {})
+    end)
+end)
+
+RegisterNetEvent('mz_phone:server:updateNote', function(noteId, data)
+    local src = source
+    runSafe('updateNote', src, function()
+        Service.UpdateNote(src, noteId, data or {})
+    end)
+end)
+
+RegisterNetEvent('mz_phone:server:deleteNote', function(noteId)
+    local src = source
+    runSafe('deleteNote', src, function()
+        Service.DeleteNote(src, noteId)
+    end)
+end)
+
 RegisterNetEvent('mz_phone:server:getContacts', function()
     local src = source
     runSafe('getContacts', src, function()

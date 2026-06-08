@@ -20,6 +20,10 @@ local playerHiddenForCamera = false
 local cameraFacing = 'back'
 local cameraHoldProp = nil
 local cameraHoldHidden = false
+local cameraHoldActive = false
+local cameraHoldThread = nil
+local cameraHoldDebugTest = false
+local cameraHoldDebugPreviousFacing = 'back'
 local cameraHoldAnim = {
     dict = nil,
     anim = nil
@@ -63,7 +67,71 @@ local function holdAnimationConfig()
     return type(cfg.HoldAnimation) == 'table' and cfg.HoldAnimation or {}
 end
 
-local function uploadConfig()
+local function trim(value)
+    if type(value) ~= 'string' then
+        return ''
+    end
+
+    return (value:gsub('^%s+', ''):gsub('%s+$', ''))
+end
+
+local function hasQueryParam(url, key)
+    url = tostring(url or ''):lower()
+    key = tostring(key or ''):lower()
+
+    if url == '' or key == '' then
+        return false
+    end
+
+    return url:find('[?&]' .. key .. '=', 1) ~= nil
+end
+
+local function appendQueryParam(url, key, value)
+    url = trim(url)
+    key = tostring(key or '')
+    value = tostring(value or '')
+
+    if url == '' or key == '' or value == '' or hasQueryParam(url, key) then
+        return url
+    end
+
+    local separator = url:find('?', 1, true) and '&' or '?'
+    return url .. separator .. key .. '=' .. value
+end
+
+local function appendDiscordWait(url)
+    url = trim(url)
+
+    if url == '' or hasQueryParam(url, 'wait') then
+        return url
+    end
+
+    local separator = url:find('?', 1, true) and '&' or '?'
+    return url .. separator .. 'wait=true'
+end
+
+local function uploadModeConfig(upload, key)
+    local value = type(upload) == 'table' and upload[key] or nil
+    return type(value) == 'table' and value or {}
+end
+
+local function uploadResult(mode, url, fieldName, adapter, token)
+    url = trim(url)
+
+    if token and token ~= '' then
+        url = appendQueryParam(url, 'token', token)
+    end
+
+    return {
+        enabled = url ~= '',
+        mode = url ~= '' and mode or 'disabled',
+        uploadUrl = url,
+        fieldName = tostring(fieldName or 'file'),
+        adapter = tostring(adapter or 'legacy')
+    }
+end
+
+local function legacyUploadConfig()
     local cfg = cameraConfig()
     local upload = type(cfg.Upload) == 'table' and cfg.Upload or {}
     local newUploadUrl = type(upload.UploadUrl) == 'string' and upload.UploadUrl or ''
@@ -71,16 +139,119 @@ local function uploadConfig()
     local usesLegacyUploadUrl = newUploadUrl == '' and legacyUploadUrl ~= ''
     local fieldName = usesLegacyUploadUrl and cfg.FieldName or upload.FieldName
 
-    return {
+    local resolved = {
+        enabled = (usesLegacyUploadUrl and legacyUploadUrl or newUploadUrl) ~= '',
+        mode = (usesLegacyUploadUrl and legacyUploadUrl or newUploadUrl) ~= '' and 'legacy' or 'disabled',
         adapter = tostring(upload.Adapter or 'legacy'),
         uploadUrl = usesLegacyUploadUrl and legacyUploadUrl or newUploadUrl,
         fieldName = tostring(fieldName or cfg.FieldName or 'file')
     }
+
+    return resolved
+end
+
+local function resolveCameraUploadConfig()
+    local cfg = cameraConfig()
+    local upload = type(cfg.Upload) == 'table' and cfg.Upload or {}
+
+    if upload.Mode == nil then
+        return legacyUploadConfig()
+    end
+
+    local mode = tostring(upload.Mode or 'auto'):lower()
+    local defaultFieldName = tostring(upload.FieldName or 'file')
+
+    local function resolveMode(targetMode)
+        if targetMode == 'disabled' then
+            return {
+                enabled = false,
+                mode = 'disabled',
+                uploadUrl = '',
+                fieldName = defaultFieldName,
+                adapter = 'disabled'
+            }
+        end
+
+        if targetMode == 'vps' then
+            local vps = uploadModeConfig(upload, 'VPS')
+            return uploadResult('vps', vps.Url, defaultFieldName, 'local', trim(vps.Token))
+        end
+
+        if targetMode == 'discord_direct' then
+            local discord = uploadModeConfig(upload, 'DiscordDirect')
+            local url = appendDiscordWait(discord.WebhookUrl)
+            return uploadResult('discord_direct', url, 'files[0]', 'discord')
+        end
+
+        if targetMode == 'discord_proxy' then
+            local proxy = uploadModeConfig(upload, 'DiscordProxy')
+            return uploadResult('discord_proxy', proxy.Url, defaultFieldName, 'discord', trim(proxy.Token))
+        end
+
+        if targetMode == 'vps_discord' then
+            local vpsDiscord = uploadModeConfig(upload, 'VPSDiscord')
+            return uploadResult('vps_discord', vpsDiscord.Url, defaultFieldName, 'local_discord', trim(vpsDiscord.Token))
+        end
+
+        return resolveMode('disabled')
+    end
+
+    if mode ~= 'auto' then
+        return resolveMode(mode)
+    end
+
+    local auto = uploadModeConfig(upload, 'Auto')
+    local prefer = tostring(auto.Prefer or 'vps'):lower()
+    local allowDiscordFallback = auto.AllowDiscordDirectFallback ~= false
+
+    if prefer == 'discord_direct' then
+        local direct = resolveMode('discord_direct')
+        if direct.enabled then
+            return direct
+        end
+
+        local vps = resolveMode('vps')
+        if vps.enabled then
+            return vps
+        end
+
+        return resolveMode('disabled')
+    end
+
+    local vps = resolveMode('vps')
+    if vps.enabled then
+        return vps
+    end
+
+    if allowDiscordFallback then
+        local direct = resolveMode('discord_direct')
+        if direct.enabled then
+            return direct
+        end
+    end
+
+    return resolveMode('disabled')
+end
+
+local function uploadConfig()
+    return resolveCameraUploadConfig()
 end
 
 local function cameraLog(message)
     if MZPhone.Debug and MZPhone.Debug.Log then
         MZPhone.Debug.Log('camera', message)
+    end
+end
+
+local function cameraAnimLog(message)
+    if MZPhone.Debug and MZPhone.Debug.Log then
+        MZPhone.Debug.Log('camera/anim', message)
+    end
+end
+
+local function cameraPropLog(message)
+    if MZPhone.Debug and MZPhone.Debug.Log then
+        MZPhone.Debug.Log('camera/prop', message)
     end
 end
 
@@ -361,70 +532,285 @@ end
 
 local ApplyCameraPropVisibility
 
-local function StartCameraHoldAnim()
+local function holdModeConfig()
+    local cfg = holdAnimationConfig()
+    local modeCfg = cameraFacing == 'front' and cfg.Selfie or cfg.Back
+    return type(modeCfg) == 'table' and modeCfg or {}
+end
+
+local function holdProfileName()
+    local cfg = holdAnimationConfig()
+    if cameraFacing == 'front' then
+        return tostring(cfg.SelfieProfile or cfg.ActiveProfile or 'text')
+    end
+
+    return tostring(cfg.ActiveProfile or 'text')
+end
+
+local function holdProfile(profileName)
+    local cfg = holdAnimationConfig()
+    local profiles = type(cfg.Profiles) == 'table' and cfg.Profiles or {}
+    local profile = profiles[profileName]
+
+    if type(profile) ~= 'table' then
+        return {
+            Dict = cfg.Dict or 'cellphone@',
+            Anim = cfg.IdleAnim or cfg.Anim or 'cellphone_text_read_base',
+            Flag = 49
+        }
+    end
+
+    return profile
+end
+
+local function getCameraPhoneDict(profile)
+    local cfg = holdAnimationConfig()
+    profile = type(profile) == 'table' and profile or holdProfile(holdProfileName())
+
+    if IsPedInAnyVehicle(PlayerPedId(), false) then
+        return tostring(profile.DictInVehicle or cfg.DictInVehicle or profile.Dict or cfg.Dict or 'anim@cellphone@in_car@ps')
+    end
+
+    return tostring(profile.Dict or cfg.Dict or 'cellphone@')
+end
+
+local function resolveCameraAnim(profileName, animName, flags)
+    local profile = holdProfile(profileName or holdProfileName())
+    return {
+        profile = profile,
+        profileName = profileName or holdProfileName(),
+        dict = getCameraPhoneDict(profile),
+        anim = tostring(animName or profile.Anim or holdAnimationConfig().IdleAnim or holdAnimationConfig().Anim or 'cellphone_text_read_base'),
+        flag = tonumber(flags or profile.Flag) or 49
+    }
+end
+
+local function PlayCameraAnim(animName, flags, profileName)
     local cfg = holdAnimationConfig()
     if cfg.Enabled ~= true then
-        return
+        return false
     end
 
-    local dict = tostring(cfg.Dict or 'cellphone@')
-    local anim = tostring(cfg.Anim or 'cellphone_text_read_base')
+    local resolved = resolveCameraAnim(profileName, animName, flags)
     local ped = PlayerPedId()
 
-    if loadAnimDict(dict) then
-        TaskPlayAnim(ped, dict, anim, 3.0, 3.0, -1, 49, 0.0, false, false, false)
-        cameraHoldAnim.dict = dict
-        cameraHoldAnim.anim = anim
+    if loadAnimDict(resolved.dict) then
+        TaskPlayAnim(ped, resolved.dict, resolved.anim, 3.0, 3.0, -1, resolved.flag, 0.0, false, false, false)
+        cameraAnimLog(('play mode=%s profile=%s dict=%s anim=%s flag=%s'):format(cameraFacing, resolved.profileName, resolved.dict, resolved.anim, tostring(resolved.flag)))
+        cameraHoldAnim.profile = resolved.profileName
+        cameraHoldAnim.dict = resolved.dict
+        cameraHoldAnim.anim = resolved.anim
+        return true
     end
 
+    local fallbackName = resolved.profile and resolved.profile.FallbackProfile or nil
+    if fallbackName and fallbackName ~= resolved.profileName then
+        cameraAnimLog(('fallback profile=%s failed_dict=%s -> %s'):format(resolved.profileName, resolved.dict, tostring(fallbackName)))
+        return PlayCameraAnim(nil, nil, fallbackName)
+    end
+
+    local fallbackDict = tostring(cfg.Dict or 'cellphone@')
+    local fallbackAnim = tostring(cfg.IdleAnim or cfg.Anim or 'cellphone_text_read_base')
+    if fallbackDict ~= resolved.dict and loadAnimDict(fallbackDict) then
+        TaskPlayAnim(ped, fallbackDict, fallbackAnim, 3.0, 3.0, -1, 49, 0.0, false, false, false)
+        cameraAnimLog(('fallback dict=%s anim=%s original_dict=%s'):format(fallbackDict, fallbackAnim, resolved.dict))
+        cameraHoldAnim.profile = 'fallback'
+        cameraHoldAnim.dict = fallbackDict
+        cameraHoldAnim.anim = fallbackAnim
+        return true
+    end
+
+    cameraAnimLog(('failed mode=%s profile=%s dict=%s anim=%s'):format(cameraFacing, resolved.profileName, resolved.dict, resolved.anim))
+    return false
+end
+
+local function CreateCameraPhoneProp()
     if DoesEntityExist(cameraHoldProp) then
+        cameraPropLog(('skip create existing entity=%s'):format(tostring(cameraHoldProp)))
         return
     end
 
-    local model = GetHashKey(tostring(cfg.Prop or 'prop_npc_phone_02'))
-    if not loadModel(model) then
-        return
+    local cfg = holdAnimationConfig()
+    local models = type(cfg.PropModels) == 'table' and cfg.PropModels or { cfg.Model or cfg.Prop or 'prop_amb_phone' }
+    local modelName = tostring(cfg.Model or cfg.Prop or models[1] or 'prop_amb_phone')
+    local model = nil
+
+    for _, candidate in ipairs(models) do
+        local candidateName = tostring(candidate or '')
+        if candidateName ~= '' then
+            local candidateHash = GetHashKey(candidateName)
+            if loadModel(candidateHash) then
+                modelName = candidateName
+                model = candidateHash
+                cameraPropLog(('model_loaded model=%s'):format(modelName))
+                break
+            end
+            cameraPropLog(('model_failed model=%s'):format(candidateName))
+        end
     end
 
+    if not model then
+        local fallbackHash = GetHashKey(modelName)
+        if not loadModel(fallbackHash) then
+            cameraPropLog(('model_unavailable model=%s'):format(modelName))
+            return
+        end
+        model = fallbackHash
+    end
+
+    local ped = PlayerPedId()
     local coords = GetEntityCoords(ped)
     cameraHoldProp = CreateObject(model, coords.x, coords.y, coords.z, true, true, false)
 
     if DoesEntityExist(cameraHoldProp) then
-        local offset = type(cfg.Offset) == 'table' and cfg.Offset or {}
-        local rotation = type(cfg.Rotation) == 'table' and cfg.Rotation or {}
+        SetEntityAsMissionEntity(cameraHoldProp, true, true)
+        local modeCfg = holdModeConfig()
+        local offset = type(modeCfg.Offset) == 'table' and modeCfg.Offset or type(cfg.Offset) == 'table' and cfg.Offset or {}
+        local rotation = type(modeCfg.Rotation) == 'table' and modeCfg.Rotation or type(cfg.Rotation) == 'table' and cfg.Rotation or {}
+        local bone = tonumber(cfg.Bone) or 28422
         AttachEntityToEntity(
             cameraHoldProp,
             ped,
-            GetPedBoneIndex(ped, tonumber(cfg.Bone) or 28422),
+            GetPedBoneIndex(ped, bone),
             tonumber(offset.x) or 0.0,
             tonumber(offset.y) or 0.0,
             tonumber(offset.z) or 0.0,
             tonumber(rotation.x) or 0.0,
             tonumber(rotation.y) or 0.0,
             tonumber(rotation.z) or 0.0,
-            true, true, false, true, 1, true
+            false, false, false, false, 2, true
         )
+        cameraPropLog(('created entity=%s model=%s bone=%s mode=%s offset=%.3f,%.3f,%.3f rotation=%.1f,%.1f,%.1f'):format(
+            tostring(cameraHoldProp),
+            modelName,
+            tostring(bone),
+            cameraFacing,
+            tonumber(offset.x) or 0.0,
+            tonumber(offset.y) or 0.0,
+            tonumber(offset.z) or 0.0,
+            tonumber(rotation.x) or 0.0,
+            tonumber(rotation.y) or 0.0,
+            tonumber(rotation.z) or 0.0
+        ))
+    else
+        cameraPropLog(('create_failed model=%s'):format(modelName))
     end
 
     SetModelAsNoLongerNeeded(model)
     ApplyCameraPropVisibility()
 end
 
-local function StopCameraHoldAnim()
-    local ped = PlayerPedId()
-
-    if cameraHoldAnim.dict and cameraHoldAnim.anim then
-        StopAnimTask(ped, cameraHoldAnim.dict, cameraHoldAnim.anim, 1.0)
-    end
-
+local function DeleteCameraPhoneProp()
     if DoesEntityExist(cameraHoldProp) then
+        cameraPropLog(('delete entity=%s'):format(tostring(cameraHoldProp)))
+        SetEntityAsMissionEntity(cameraHoldProp, true, true)
         DeleteEntity(cameraHoldProp)
     end
 
     cameraHoldProp = nil
     cameraHoldHidden = false
+end
+
+local function HideCameraPhoneProp()
+    if DoesEntityExist(cameraHoldProp) then
+        SetEntityVisible(cameraHoldProp, false, false)
+        cameraHoldHidden = true
+        cameraPropLog(('hide entity=%s mode=%s'):format(tostring(cameraHoldProp), cameraFacing))
+    end
+end
+
+local function ShowCameraPhoneProp()
+    if DoesEntityExist(cameraHoldProp) then
+        SetEntityVisible(cameraHoldProp, true, false)
+        cameraHoldHidden = false
+        cameraPropLog(('show entity=%s mode=%s'):format(tostring(cameraHoldProp), cameraFacing))
+    end
+end
+
+local function ensureCameraHoldLoop()
+    if cameraHoldThread then
+        return
+    end
+
+    cameraHoldThread = CreateThread(function()
+        while cameraHoldActive do
+            local cfg = holdAnimationConfig()
+            local ped = PlayerPedId()
+            local resolved = resolveCameraAnim(holdProfileName())
+
+            if cameraHoldAnim.dict ~= resolved.dict or cameraHoldAnim.anim ~= resolved.anim or not IsEntityPlayingAnim(ped, resolved.dict, resolved.anim, 3) then
+                PlayCameraAnim(nil, nil, resolved.profileName)
+            end
+
+            if DoesEntityExist(cameraHoldProp) then
+                ApplyCameraPropVisibility()
+            end
+
+            Wait(650)
+        end
+
+        cameraHoldThread = nil
+    end)
+end
+
+local function StartCameraHoldAnimation()
+    local cfg = holdAnimationConfig()
+    if cfg.Enabled ~= true then
+        return
+    end
+
+    local ped = PlayerPedId()
+    cameraHoldActive = true
+
+    cameraAnimLog(('start mode=%s profile=%s ped_hidden=%s'):format(cameraFacing, holdProfileName(), tostring(playerHiddenForCamera)))
+
+    if cfg.DisableWeapon == true then
+        SetCurrentPedWeapon(ped, GetHashKey('WEAPON_UNARMED'), true)
+    end
+
+    CreateCameraPhoneProp()
+    PlayCameraAnim(cfg.EnterAnim or nil, 49, holdProfileName())
+
+    CreateThread(function()
+        Wait(450)
+        if cameraHoldActive then
+            PlayCameraAnim(nil, nil, holdProfileName())
+            ensureCameraHoldLoop()
+        end
+    end)
+end
+
+local function CleanupCameraAnimation(reason)
+    local cfg = holdAnimationConfig()
+    local ped = PlayerPedId()
+
+    cameraHoldActive = false
+    cameraAnimLog(('cleanup reason=%s mode=%s prop=%s'):format(tostring(reason or 'camera_stop'), cameraFacing, tostring(cameraHoldProp)))
+
+    if cameraHoldAnim.dict and cameraHoldAnim.anim then
+        StopAnimTask(ped, cameraHoldAnim.dict, cameraHoldAnim.anim, 1.0)
+    end
+
+    if cfg.Enabled == true and reason ~= 'resource_stop' then
+        local exitAnim = IsPedInAnyVehicle(ped, false) and cfg.ExitVehicleAnim or cfg.ExitAnim
+        if exitAnim then
+            PlayCameraAnim(exitAnim, 48)
+            Wait(120)
+        end
+    end
+
+    ClearPedSecondaryTask(ped)
+    DeleteCameraPhoneProp()
     cameraHoldAnim.dict = nil
     cameraHoldAnim.anim = nil
+end
+
+local function StartCameraHoldAnim()
+    StartCameraHoldAnimation()
+end
+
+local function StopCameraHoldAnim(reason)
+    CleanupCameraAnimation(reason or 'camera_stop')
 end
 
 local function HideCameraPropForCapture()
@@ -439,15 +825,12 @@ local function HideCameraPropForCapture()
         return
     end
 
-    if DoesEntityExist(cameraHoldProp) then
-        SetEntityVisible(cameraHoldProp, false, false)
-        cameraHoldHidden = true
-    end
+    HideCameraPhoneProp()
 end
 
 local function RestoreCameraPropAfterCapture()
-    if cameraHoldHidden and DoesEntityExist(cameraHoldProp) then
-        SetEntityVisible(cameraHoldProp, true, false)
+    if cameraHoldHidden then
+        ShowCameraPhoneProp()
     end
 
     cameraHoldHidden = false
@@ -459,21 +842,26 @@ end
 
 function ApplyCameraPropVisibility()
     if not DoesEntityExist(cameraHoldProp) then
+        cameraPropLog(('visibility skipped no_prop mode=%s'):format(cameraFacing))
         return
     end
 
     local cfg = holdAnimationConfig()
-    if cameraFacing == 'back' and cfg.HidePropInBackMode == true then
+    local modeCfg = holdModeConfig()
+    if cameraFacing == 'back' and (modeCfg.Visible == false or cfg.HidePropInBackMode == true) then
         SetEntityVisible(cameraHoldProp, false, false)
+        cameraPropLog(('hide reason=back_mode entity=%s ped_hidden=%s'):format(tostring(cameraHoldProp), tostring(playerHiddenForCamera)))
         return
     end
 
-    if cameraFacing == 'front' and cfg.ShowPropInSelfieMode ~= false then
+    if cameraFacing == 'front' and (modeCfg.Visible == true or cfg.ShowPropInSelfieMode ~= false) then
         SetEntityVisible(cameraHoldProp, true, false)
+        cameraPropLog(('show reason=selfie_mode entity=%s ped_hidden=%s'):format(tostring(cameraHoldProp), tostring(playerHiddenForCamera)))
         return
     end
 
     SetEntityVisible(cameraHoldProp, false, false)
+    cameraPropLog(('hide reason=config entity=%s mode=%s'):format(tostring(cameraHoldProp), cameraFacing))
 end
 
 local function finishRequest(requestId, payload)
@@ -813,14 +1201,22 @@ local function toggleCameraFacing()
         local limits = cameraFovLimits()
         cameraFov = clamp(limits.default, limits.min, limits.max)
         MZPhone.Camera.CreatePhoneCamera()
+        DeleteCameraPhoneProp()
+        CreateCameraPhoneProp()
+        PlayCameraAnim(nil, nil, holdProfileName())
         ApplyCameraPropVisibility()
+        cameraAnimLog('switch back_to_selfie')
     else
         cameraFacing = 'back'
         local limits = cameraFovLimits()
         cameraFov = clamp(limits.default, limits.min, limits.max)
         MZPhone.Camera.CreatePhoneCamera()
         HideLocalPlayerForCamera('camera_back')
+        DeleteCameraPhoneProp()
+        CreateCameraPhoneProp()
+        PlayCameraAnim(nil, nil, holdProfileName())
         ApplyCameraPropVisibility()
+        cameraAnimLog('switch selfie_to_back')
     end
 
     sendCameraHud(true, cameraHudPayload('ready'))
@@ -857,6 +1253,11 @@ local function canCapture(cb)
         return false
     end
 
+    if upload.enabled ~= true or upload.uploadUrl == '' then
+        cb({ ok = false, error = 'camera_upload_not_configured', uploadMode = upload.mode or 'disabled' })
+        return false
+    end
+
     local adapter = tostring(cfg.Adapter or 'none')
     if adapter ~= 'screenshot-basic' then
         cb({ ok = false, error = 'camera_adapter_unavailable' })
@@ -870,11 +1271,6 @@ local function canCapture(cb)
 
     if tostring(cfg.SaveMode or 'url') ~= 'url' then
         cb({ ok = false, error = 'camera_save_mode_unsupported' })
-        return false
-    end
-
-    if upload.uploadUrl == '' then
-        cb({ ok = false, error = 'camera_upload_not_configured' })
         return false
     end
 
@@ -904,6 +1300,9 @@ function MZPhone.Camera.CapturePhoto(data, cb)
             error = captureError and captureError.error or 'save_failed'
         }))
         sendCameraStatus(captureError or { ok = false, error = 'save_failed' })
+        if captureError and captureError.error == 'camera_upload_not_configured' then
+            cameraNotify('Upload da camera nao configurado.', 'error')
+        end
         return
     end
 
@@ -932,13 +1331,14 @@ function MZPhone.Camera.CapturePhoto(data, cb)
             sendCameraHud(false)
         end
 
+        HideCameraPropForCapture()
+
         local delay = tonumber(cfg.CaptureDelayMs) or 250
         if delay > 0 then
             Wait(delay)
         end
 
         releasePhoneFocus('camera_capture')
-        HideCameraPropForCapture()
 
         local hideDelay = hidePlayerForCapture()
         if hideDelay > 0 then
@@ -992,7 +1392,7 @@ function MZPhone.Camera.StopCameraMode(reason, options)
     restorePlayerVisibility()
     RestoreLocalPlayerAfterCamera('camera_stop')
     RestoreCameraPropAfterCapture()
-    StopCameraHoldAnim()
+    StopCameraHoldAnim(reason or 'camera_stop')
     MZPhone.Camera.DestroyPhoneCamera()
     restoreCameraFov()
     restoreCameraView()
@@ -1104,6 +1504,53 @@ function MZPhone.Camera.TakePhoto(data, cb)
     MZPhone.Camera.StartCameraMode(data, cb)
 end
 
+RegisterCommand('mzphone_cam_anim_test', function()
+    local cfg = holdAnimationConfig()
+    if type(Config.Debug) ~= 'table' or Config.Debug.Enabled ~= true or cfg.DebugCommand ~= true then
+        if MZPhone.Framework and MZPhone.Framework.Notify then
+            MZPhone.Framework.Notify('Ative Config.Debug.Enabled para testar a animacao da camera.', 'error', 'Camera')
+        end
+        return
+    end
+
+    if cameraMode then
+        if MZPhone.Framework and MZPhone.Framework.Notify then
+            MZPhone.Framework.Notify('Saia da camera antes de testar a animacao.', 'error', 'Camera')
+        end
+        return
+    end
+
+    if cameraHoldDebugTest then
+        cameraHoldDebugTest = false
+        CleanupCameraAnimation('debug_toggle_off')
+        cameraFacing = cameraHoldDebugPreviousFacing
+        return
+    end
+
+    cameraHoldDebugTest = true
+    cameraHoldDebugPreviousFacing = cameraFacing
+    cameraFacing = 'front'
+    RestoreLocalPlayerAfterCamera('debug_anim_test')
+    SetEntityVisible(PlayerPedId(), true, false)
+    StartCameraHoldAnimation()
+    ShowCameraPhoneProp()
+    cameraAnimLog(('debug_test start duration=%s model=%s profile=%s'):format(tostring(cfg.DebugTestDurationMs or 10000), tostring(cfg.Model or cfg.Prop), holdProfileName()))
+
+    if MZPhone.Framework and MZPhone.Framework.Notify then
+        MZPhone.Framework.Notify('Teste de animacao da camera ativo por alguns segundos.', 'info', 'Camera')
+    end
+
+    CreateThread(function()
+        Wait(tonumber(cfg.DebugTestDurationMs) or 10000)
+        if cameraHoldDebugTest then
+            cameraHoldDebugTest = false
+            CleanupCameraAnimation('debug_timeout')
+            cameraFacing = cameraHoldDebugPreviousFacing
+            cameraAnimLog('debug_test cleanup')
+        end
+    end)
+end, false)
+
 RegisterNetEvent('mz_phone:client:cameraPhotoSaved', function(payload)
     payload = type(payload) == 'table' and payload or {}
     local requestId = tostring(payload.requestId or '')
@@ -1117,5 +1564,7 @@ AddEventHandler('onResourceStop', function(resourceName)
 
     if cameraMode then
         MZPhone.Camera.StopCameraMode('resource_stop', { restorePhone = false })
+    elseif holdAnimationConfig().CleanupOnStop ~= false then
+        CleanupCameraAnimation('resource_stop')
     end
 end)

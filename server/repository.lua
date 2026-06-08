@@ -105,6 +105,19 @@ function Repository.Prepare()
     ]])
 
     MySQL.query.await([[
+        CREATE TABLE IF NOT EXISTS mz_phone_notes (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            owner_citizenid VARCHAR(64) NOT NULL,
+            title VARCHAR(160) DEFAULT NULL,
+            content TEXT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_mz_phone_notes_owner (owner_citizenid),
+            INDEX idx_mz_phone_notes_updated (updated_at)
+        )
+    ]])
+
+    MySQL.query.await([[
         CREATE TABLE IF NOT EXISTS mz_phone_conversations (
             id INT AUTO_INCREMENT PRIMARY KEY,
             owner_citizenid VARCHAR(64) NOT NULL,
@@ -262,6 +275,26 @@ function Repository.FindNumberOwner(phoneNumber)
     return nil
 end
 
+function Repository.GetPlayerProfile(citizenid)
+    citizenid = tostring(citizenid or '')
+    if citizenid == '' then
+        return nil
+    end
+
+    return MySQL.single.await([[
+        SELECT
+            citizenid,
+            firstname,
+            lastname,
+            phone,
+            nationality,
+            birthdate
+        FROM mz_players
+        WHERE citizenid = ?
+        LIMIT 1
+    ]], { citizenid })
+end
+
 function Repository.CreatePhoneNumber(citizenid, phoneNumber)
     MySQL.insert.await([[
         INSERT INTO mz_phone_numbers (citizenid, phone_number)
@@ -306,6 +339,65 @@ function Repository.SaveSettings(citizenid, data)
         data.profilePhoto,
         json.encode(data.settings or {})
     })
+end
+
+function Repository.GetNotes(citizenid)
+    return MySQL.query.await([[
+        SELECT id, title, content, created_at, updated_at
+        FROM mz_phone_notes
+        WHERE owner_citizenid = ?
+        ORDER BY updated_at DESC, id DESC
+    ]], { citizenid }) or {}
+end
+
+function Repository.GetNote(citizenid, noteId)
+    noteId = tonumber(noteId)
+    if not noteId then
+        return nil
+    end
+
+    return MySQL.single.await([[
+        SELECT id, title, content, created_at, updated_at
+        FROM mz_phone_notes
+        WHERE id = ? AND owner_citizenid = ?
+        LIMIT 1
+    ]], { noteId, citizenid })
+end
+
+function Repository.CreateNote(citizenid, data)
+    data = type(data) == 'table' and data or {}
+
+    return MySQL.insert.await([[
+        INSERT INTO mz_phone_notes (owner_citizenid, title, content)
+        VALUES (?, ?, ?)
+    ]], { citizenid, data.title or '', data.content or '' })
+end
+
+function Repository.UpdateNote(citizenid, noteId, data)
+    noteId = tonumber(noteId)
+    if not noteId then
+        return 0
+    end
+
+    data = type(data) == 'table' and data or {}
+
+    return MySQL.update.await([[
+        UPDATE mz_phone_notes
+        SET title = ?, content = ?
+        WHERE id = ? AND owner_citizenid = ?
+    ]], { data.title or '', data.content or '', noteId, citizenid })
+end
+
+function Repository.DeleteNote(citizenid, noteId)
+    noteId = tonumber(noteId)
+    if not noteId then
+        return 0
+    end
+
+    return MySQL.update.await([[
+        DELETE FROM mz_phone_notes
+        WHERE id = ? AND owner_citizenid = ?
+    ]], { noteId, citizenid })
 end
 
 function Repository.GetContacts(citizenid)

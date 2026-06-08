@@ -20,6 +20,17 @@ CREATE TABLE IF NOT EXISTS mz_phone_contacts (
     INDEX idx_mz_phone_contacts_owner (owner_citizenid)
 );
 
+CREATE TABLE IF NOT EXISTS mz_phone_notes (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    owner_citizenid VARCHAR(64) NOT NULL,
+    title VARCHAR(160) DEFAULT NULL,
+    content TEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_mz_phone_notes_owner (owner_citizenid),
+    INDEX idx_mz_phone_notes_updated (updated_at)
+);
+
 CREATE TABLE IF NOT EXISTS mz_phone_conversations (
     id INT AUTO_INCREMENT PRIMARY KEY,
     owner_citizenid VARCHAR(64) NOT NULL,

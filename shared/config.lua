@@ -96,15 +96,63 @@ Config.Phone = {
         },
         HoldAnimation = {
             Enabled = true,
-            Dict = 'cellphone@',
-            Anim = 'cellphone_text_read_base',
-            Prop = 'prop_npc_phone_02',
+            Model = 'prop_amb_phone',
+            Prop = 'prop_amb_phone',
+            PropModels = {
+                'prop_amb_phone',
+                'prop_npc_phone_02',
+                'prop_phone_ing'
+            },
             Bone = 28422,
-            Offset = { x = 0.01, y = 0.015, z = 0.0 },
-            Rotation = { x = -10.0, y = 0.0, z = 5.0 },
+            Dict = 'cellphone@',
+            DictInVehicle = 'anim@cellphone@in_car@ps',
+            EnterAnim = 'cellphone_text_in',
+            IdleAnim = 'cellphone_text_read_base',
+            Anim = 'cellphone_text_read_base',
+            ExitAnim = 'cellphone_text_out',
+            CallAnim = 'cellphone_text_to_call',
+            CallToTextAnim = 'cellphone_call_to_text',
+            ExitCallAnim = 'cellphone_call_out',
+            ExitVehicleAnim = 'cellphone_horizontal_exit',
+            Offset = { x = 0.0, y = 0.0, z = 0.0 },
+            Rotation = { x = 0.0, y = 0.0, z = 0.0 },
             HidePropBeforeCapture = true,
             HidePropInBackMode = true,
-            ShowPropInSelfieMode = true
+            ShowPropInSelfieMode = true,
+            DisableWeapon = true,
+            CleanupOnStop = true,
+            ActiveProfile = 'text',
+            SelfieProfile = 'text',
+            DebugCommand = true,
+            DebugTestDurationMs = 10000,
+            Profiles = {
+                text = {
+                    Dict = 'cellphone@',
+                    Anim = 'cellphone_text_read_base',
+                    Flag = 49
+                },
+                call = {
+                    Dict = 'cellphone@',
+                    Anim = 'cellphone_call_listen_base',
+                    Flag = 49
+                },
+                selfie = {
+                    Dict = 'cellphone@self@franklin@',
+                    Anim = 'peace',
+                    Flag = 49,
+                    FallbackProfile = 'text'
+                }
+            },
+            Back = {
+                Visible = false,
+                Offset = { x = 0.0, y = 0.0, z = 0.0 },
+                Rotation = { x = 0.0, y = 0.0, z = 0.0 }
+            },
+            Selfie = {
+                Visible = true,
+                Offset = { x = 0.0, y = 0.0, z = 0.0 },
+                Rotation = { x = 0.0, y = 0.0, z = 0.0 }
+            }
         },
         FirstPerson = {
             Enabled = true,
@@ -116,22 +164,28 @@ Config.Phone = {
         Adapter = 'screenshot-basic',
         SaveMode = 'url',
         Upload = {
-            Adapter = 'local',
-            UploadUrl = '',
+            Mode = 'auto', -- auto, disabled, vps, discord_direct, discord_proxy, vps_discord
             FieldName = 'file',
-            Local = {
-                Enabled = true,
-                PublicBaseUrl = '',
-                MaxFileSizeMb = 5
+            Auto = {
+                Prefer = 'vps', -- vps ou discord_direct
+                AllowDiscordDirectFallback = true
             },
-            Discord = {
-                Enabled = false,
-                WebhookUrl = '',
-                UseAsPrimary = false
+            VPS = {
+                Url = '',
+                Token = ''
+            },
+            DiscordDirect = {
+                WebhookUrl = ''
+            },
+            DiscordProxy = {
+                Url = '',
+                Token = ''
+            },
+            VPSDiscord = {
+                Url = '',
+                Token = ''
             }
         },
-        UploadUrl = '',
-        FieldName = 'file',
         Quality = 0.85,
         Encoding = 'jpg',
         CooldownMs = 5000,

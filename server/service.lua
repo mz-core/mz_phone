@@ -284,6 +284,8 @@ end
 local function buildDefaults(identity, phoneNumber)
     local settings = ensureSettings(identity)
     local extraSettings = decodeSettingsJson(settings.settings)
+    local dbProfile = Repository.GetPlayerProfile(identity.citizenid) or {}
+    local notes = Repository.GetNotes(identity.citizenid)
     local contacts = Repository.GetContacts(identity.citizenid)
     local conversations = Repository.GetConversations(identity.citizenid)
     local calls = Repository.GetCalls(identity.citizenid)
@@ -307,20 +309,20 @@ local function buildDefaults(identity, phoneNumber)
         },
         profilePhoto = settings.profile_photo or '',
         playerProfile = {
-            firstname = identity.firstname or '',
-            lastname = identity.lastname or '',
-            phoneNumber = phoneNumber or '',
+            firstname = identity.firstname ~= '' and identity.firstname or dbProfile.firstname or '',
+            lastname = identity.lastname ~= '' and identity.lastname or dbProfile.lastname or '',
+            phoneNumber = phoneNumber or dbProfile.phone or '',
             citizenid = identity.citizenid or '',
-            nationality = identity.nationality or '',
-            birthdate = identity.birthdate or ''
+            nationality = identity.nationality ~= '' and identity.nationality or dbProfile.nationality or '',
+            birthdate = identity.birthdate ~= '' and identity.birthdate or dbProfile.birthdate or ''
         },
         contacts = contacts,
         conversations = conversations,
         calls = calls,
         gallery = gallery,
         gallerySelectedPhotoId = nil,
-        notes = {},
-        noteDraft = '',
+        notes = notes,
+        noteDraft = { title = '', content = '' },
         contactSearch = '',
         selectedContactId = nil,
         contactDraft = { id = nil, name = '', number = '', avatar = '' },
@@ -501,6 +503,73 @@ function MZPhoneServer.Service.Save(source, data)
 
     Repository.SaveSettings(identity.citizenid, payload)
     return true
+end
+
+local function refreshNotes(source, citizenid)
+    TriggerClientEvent('mz_phone:client:receiveNotes', source, Repository.GetNotes(citizenid))
+end
+
+function MZPhoneServer.Service.GetNotes(source)
+    local identity = Security.RequireIdentity(source, { context = 'get_notes' })
+    if not identity then return end
+
+    refreshNotes(source, identity.citizenid)
+end
+
+function MZPhoneServer.Service.CreateNote(source, data)
+    if not Security.RateLimit(source, 'note') then return end
+
+    local identity = Security.RequireIdentity(source, { context = 'create_note' })
+    if not identity then return end
+
+    data = type(data) == 'table' and data or {}
+    local payload = {
+        title = Security.SanitizeText(data.title or '', 160),
+        content = Security.SanitizeText(data.content or '', 5000)
+    }
+
+    if payload.title == '' and payload.content == '' then
+        return
+    end
+
+    Repository.CreateNote(identity.citizenid, payload)
+    refreshNotes(source, identity.citizenid)
+end
+
+function MZPhoneServer.Service.UpdateNote(source, noteId, data)
+    if not Security.RateLimit(source, 'note') then return end
+
+    local identity = Security.RequireIdentity(source, { context = 'update_note' })
+    if not identity then return end
+
+    noteId = tonumber(noteId)
+    if not noteId then return end
+
+    data = type(data) == 'table' and data or {}
+    local payload = {
+        title = Security.SanitizeText(data.title or '', 160),
+        content = Security.SanitizeText(data.content or '', 5000)
+    }
+
+    if payload.title == '' and payload.content == '' then
+        return
+    end
+
+    Repository.UpdateNote(identity.citizenid, noteId, payload)
+    refreshNotes(source, identity.citizenid)
+end
+
+function MZPhoneServer.Service.DeleteNote(source, noteId)
+    if not Security.RateLimit(source, 'note') then return end
+
+    local identity = Security.RequireIdentity(source, { context = 'delete_note' })
+    if not identity then return end
+
+    noteId = tonumber(noteId)
+    if not noteId then return end
+
+    Repository.DeleteNote(identity.citizenid, noteId)
+    refreshNotes(source, identity.citizenid)
 end
 
 local function refreshContacts(source, citizenid)
