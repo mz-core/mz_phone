@@ -450,6 +450,10 @@ window.PhoneAPI = (() => {
       return await post("sendMessage", data || {});
     },
 
+    async setWaypoint(data) {
+      return await post("setWaypoint", data || {});
+    },
+
     async markConversationRead(conversationId) {
       return await post("markConversationRead", { conversationId });
     },

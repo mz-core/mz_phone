@@ -10,6 +10,7 @@ const cameraHud = document.getElementById("cameraHud");
 const DEFAULT_PHONE_STATE = {
   isOpen: false,
   currentApp: null,
+  appParams: {},
 
   settingsView: "main",
   settingsModal: null,
@@ -57,15 +58,20 @@ const DEFAULT_PHONE_STATE = {
   messagesEmojiOpen: false,
   messagesActionModal: false,
   messagesMediaDraft: "",
+  messagesMediaPreview: null,
+  messagesImageViewer: null,
 
   calls: [],
   callsTab: "recents",
   dialerValue: "",
   gallery: [],
   gallerySelectedPhotoId: null,
+  galleryPicker: false,
   cameraBusy: false,
   cameraError: "",
   cameraLastPhoto: null,
+  pendingMediaPurpose: "",
+  pendingMediaRequest: null,
   callSession: null,
   incomingCall: null,
   previousApp: null,
@@ -84,6 +90,7 @@ const DEFAULT_PHONE_STATE = {
 };
 
 let phoneState = window.Utils.deepClone(DEFAULT_PHONE_STATE);
+let activeMediaRequest = null;
 
 window.PhoneAudio = window.PhoneAudio || {
   players: {},
@@ -404,7 +411,150 @@ function renderCurrentApp() {
   }
 }
 
-window.openApp = function (appId) {
+function mediaPhotoUrl(photo) {
+  return photo?.image_url || photo?.imageUrl || photo?.url || photo?.thumbnail_url || photo?.thumbnailUrl || "";
+}
+
+function normalizeMediaResult(photo, source = "gallery") {
+  if (!photo || typeof photo !== "object") return null;
+  const imageUrl = mediaPhotoUrl(photo);
+  if (!imageUrl) return null;
+
+  return {
+    id: photo.id ?? null,
+    url: imageUrl,
+    imageUrl,
+    thumbnailUrl: photo.thumbnail_url || photo.thumbnailUrl || "",
+    caption: photo.caption || "",
+    type: "image",
+    source,
+  };
+}
+
+function mediaReturnState() {
+  return {
+    settingsView: phoneState.settingsView,
+    settingsModal: null,
+    settingsInputDraft: "",
+    selectedConversationId: phoneState.selectedConversationId,
+    messagesActionModal: false,
+    messagesMediaDraft: phoneState.messagesMediaDraft || "",
+    messagesMediaPreview: phoneState.messagesMediaPreview || null,
+    messagesImageViewer: null,
+    contactsView: phoneState.contactsView,
+    selectedContactId: phoneState.selectedContactId,
+    contactDraft: phoneState.contactDraft,
+  };
+}
+
+function beginMediaRequest(kind, options = {}) {
+  const request = {
+    kind,
+    purpose: options.purpose || "",
+    returnApp: options.returnApp || phoneState.currentApp || null,
+    returnState: {
+      ...mediaReturnState(),
+      ...(options.returnState || {}),
+    },
+    createdAt: Date.now(),
+  };
+
+  activeMediaRequest = request;
+  patchPhoneState({
+    previousApp: request.returnApp,
+    pendingMediaPurpose: request.purpose,
+    pendingMediaRequest: {
+      kind: request.kind,
+      purpose: request.purpose,
+      returnApp: request.returnApp,
+    },
+    galleryPicker: kind === "gallery",
+    gallerySelectedPhotoId: null,
+  });
+
+  return request;
+}
+
+function dispatchMediaResult(result, request) {
+  if (!result || !request) return;
+  const handlerMap = {
+    settings: () => window.SettingsApp?.applyMediaResult?.(result, request),
+    messages: () => window.MessagesApp?.applyMediaResult?.(result, request),
+    contacts: () => window.ContactsApp?.applyMediaResult?.(result, request),
+  };
+
+  window.setTimeout(() => {
+    const handled = handlerMap[request.returnApp]?.();
+    if (handled === false || handled === undefined) {
+      window.PhoneUI?.notify?.({
+        type: "info",
+        title: "Imagem",
+        message: "Esta tela ainda nao usa imagem.",
+      });
+    }
+  }, 0);
+}
+
+function completeMediaRequest(photo, source = "gallery") {
+  const result = normalizeMediaResult(photo, source);
+  const request = activeMediaRequest;
+  if (!request || !result) return;
+
+  activeMediaRequest = null;
+  patchPhoneState({
+    ...(request.returnState || {}),
+    galleryPicker: false,
+    gallerySelectedPhotoId: null,
+    pendingMediaPurpose: "",
+    pendingMediaRequest: null,
+  });
+
+  if (request.returnApp) {
+    window.openApp(request.returnApp, { skipMediaRequest: true });
+  } else {
+    window.goHome();
+  }
+
+  dispatchMediaResult(result, request);
+}
+
+function cancelMediaRequest() {
+  const request = activeMediaRequest;
+  if (!request) return;
+
+  activeMediaRequest = null;
+  patchPhoneState({
+    ...(request.returnState || {}),
+    galleryPicker: false,
+    gallerySelectedPhotoId: null,
+    pendingMediaPurpose: "",
+    pendingMediaRequest: null,
+  });
+
+  if (request.returnApp) {
+    window.openApp(request.returnApp, { skipMediaRequest: true });
+  } else {
+    window.goHome();
+  }
+}
+
+window.PhoneMedia = {
+  openGalleryForResult(options = {}) {
+    beginMediaRequest("gallery", options);
+    window.openApp("gallery", { picker: true });
+  },
+
+  openCameraForResult(options = {}) {
+    beginMediaRequest("camera", options);
+    window.openApp("camera", { mediaRequest: true });
+  },
+
+  complete: completeMediaRequest,
+  cancel: cancelMediaRequest,
+  current: () => activeMediaRequest,
+};
+
+window.openApp = function (appId, params = {}) {
   const app = window.AppRegistry.getApp(appId);
   if (!app) return;
 
@@ -420,6 +570,7 @@ window.openApp = function (appId) {
   const isSameApp = previousAppId === appId;
 
   phoneState.currentApp = appId;
+  phoneState.appParams = params || {};
 
   if (homeScreen) homeScreen.style.display = "none";
   if (appScreen) appScreen.style.display = "flex";
@@ -564,7 +715,10 @@ function renderCameraHud(visible, data = {}) {
   const status = data.status || "ready";
   const isError = status === "error";
   const isCapturing = status === "capturing";
-  const showZoom = data.mode === "scripted" && data.zoom?.Enabled === true;
+  const showZoom = data.zoom?.Enabled === true;
+  const showSwitch = data.switchCamera?.Enabled === true;
+  const facingLabel = data.facing === "front" ? "SELFIE" : "POV";
+  const zoomLabel = data.zoomLabel || "";
   const errorLabel =
     typeof window.cameraErrorMessage === "function"
       ? window.cameraErrorMessage(data.error)
@@ -582,6 +736,8 @@ function renderCameraHud(visible, data = {}) {
     <div class="camera-hud__top">
       <span class="camera-hud__record-dot"></span>
       <span>MZ CAM</span>
+      <span>${window.Utils.escapeHtml(facingLabel)}</span>
+      ${zoomLabel ? `<span>${window.Utils.escapeHtml(zoomLabel)}</span>` : ""}
     </div>
 
     ${
@@ -595,9 +751,10 @@ function renderCameraHud(visible, data = {}) {
     }
 
     <div class="camera-hud__bottom">
-      <span>ENTER / Clique: tirar foto</span>
-      <span>ESC / Backspace: cancelar</span>
+      <span>Clique/ENTER: tirar foto</span>
       ${showZoom ? "<span>Scroll: zoom</span>" : ""}
+      ${showSwitch ? "<span>E: inverter</span>" : ""}
+      <span>ESC/Backspace: cancelar</span>
     </div>
   `;
 }
@@ -607,11 +764,24 @@ function handleCameraStatus(data = {}) {
     phoneState.cameraBusy = false;
     phoneState.cameraError = "";
     phoneState.cameraLastPhoto = data.photo || null;
+
+    if (activeMediaRequest && activeMediaRequest.kind === "camera") {
+      completeMediaRequest(data.photo, "camera");
+    }
+
     return;
   }
 
   phoneState.cameraBusy = false;
   phoneState.cameraError = data.error || "save_failed";
+
+  if (
+    activeMediaRequest &&
+    activeMediaRequest.kind === "camera" &&
+    (data.error === "camera_cancelled" || data.error === "camera_mode_inactive")
+  ) {
+    cancelMediaRequest();
+  }
 }
 
 function bootPhone() {

@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS mz_phone_messages (
     message TEXT NULL,
     message_type VARCHAR(30) NOT NULL DEFAULT 'text',
     media_url TEXT NULL,
+    metadata JSON NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_mz_phone_messages_conversation (conversation_id),
     INDEX idx_mz_phone_messages_owner (owner_citizenid)

@@ -175,6 +175,37 @@
   height: 32px;
 }
 
+.contacts-editor-avatar-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.contacts-avatar-action {
+  min-height: 34px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+:root[data-theme="light"] .contacts-avatar-action {
+  background: rgba(17, 17, 17, 0.06);
+}
+
+.contacts-avatar-action svg {
+  width: 15px;
+  height: 15px;
+}
+
 .contacts-editor-fields {
   display: flex;
   flex-direction: column;

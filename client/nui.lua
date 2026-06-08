@@ -146,6 +146,25 @@ RegisterNUICallback('takePhoto', function(data, cb)
     ok(cb, { ok = false, error = 'camera_unavailable' })
 end)
 
+RegisterNUICallback('setWaypoint', function(data, cb)
+    data = type(data) == 'table' and data or {}
+    local x = tonumber(data.x)
+    local y = tonumber(data.y)
+
+    if not x or not y or math.abs(x) > 10000.0 or math.abs(y) > 10000.0 then
+        ok(cb, { ok = false, error = 'invalid_coords' })
+        return
+    end
+
+    SetNewWaypoint(x + 0.0, y + 0.0)
+
+    if MZPhone.Framework and MZPhone.Framework.Notify then
+        MZPhone.Framework.Notify('GPS marcado no mapa.', 'success', 'Mensagens')
+    end
+
+    ok(cb, { ok = true })
+end)
+
 RegisterNUICallback('getCalls', function(_, cb)
     TriggerServerEvent('mz_phone:server:getCalls')
     ok(cb)

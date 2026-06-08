@@ -10,6 +10,10 @@ registerApp({
       cameraError: "",
       cameraLastPhoto: null,
     });
+
+    window.setTimeout(() => {
+      window.CameraApp?.openCameraMode?.();
+    }, 0);
   },
 
   render(ctx) {
@@ -39,19 +43,16 @@ registerApp({
 
             ${renderCameraFeedback(state)}
 
-            <button
-              class="camera-primary-btn"
-              onclick="window.CameraApp.openCameraMode()"
-              ${state.cameraBusy ? "disabled" : ""}
-            >
-              <i data-lucide="${state.cameraBusy ? "loader-circle" : "aperture"}"></i>
-              <span>${state.cameraBusy ? "Abrindo..." : "Abrir camera"}</span>
-            </button>
-
-            <button class="camera-secondary-action" onclick="window.CameraApp.openGallery()">
-              <i data-lucide="images"></i>
-              <span>Galeria</span>
-            </button>
+            ${
+              state.cameraError
+                ? `
+                  <button class="camera-primary-btn" onclick="window.CameraApp.openCameraMode()">
+                    <i data-lucide="refresh-cw"></i>
+                    <span>Tentar novamente</span>
+                  </button>
+                `
+                : ""
+            }
           </div>
         </div>
       </div>
@@ -121,7 +122,7 @@ function renderCameraFeedback(state) {
   return `
     <div class="camera-feedback">
       <i data-lucide="focus"></i>
-      <span>O celular sera escondido ao abrir.</span>
+      <span>Abrindo camera...</span>
     </div>
   `;
 }
@@ -138,8 +139,13 @@ window.CameraApp = {
     });
     window.PhoneApp.renderCurrentApp();
 
+    const request = window.PhoneMedia?.current?.();
     const result = window.PhoneAPI?.openCameraMode
-      ? await window.PhoneAPI.openCameraMode({ restoreApp: "camera" })
+      ? await window.PhoneAPI.openCameraMode({
+          restoreApp: request?.returnApp || "home",
+          forResult: request?.kind === "camera",
+          purpose: request?.purpose || "",
+        })
       : { ok: false, error: "camera_unavailable" };
 
     if (result && result.ok === true) {

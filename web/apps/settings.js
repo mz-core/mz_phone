@@ -714,20 +714,91 @@ registerApp({
         );
       },
 
-      fakePhotoAction: () => {
+      fakePhotoAction: (kind) => {
         ctx.patchState({
           settingsModal: null,
           settingsInputDraft: "",
         });
-        ctx.renderCurrentApp();
+
+        const options = {
+          purpose: "profile_photo",
+          returnApp: "settings",
+          returnState: {
+            settingsView: "profile",
+            settingsModal: null,
+            settingsInputDraft: "",
+          },
+        };
+
+        if (kind === "camera") {
+          window.PhoneMedia?.openCameraForResult(options);
+          return;
+        }
+
+        window.PhoneMedia?.openGalleryForResult(options);
       },
 
-      fakeWallpaperAction: () => {
+      fakeWallpaperAction: (kind) => {
         ctx.patchState({
           settingsModal: null,
           settingsInputDraft: "",
         });
-        ctx.renderCurrentApp();
+
+        const options = {
+          purpose: "wallpaper",
+          returnApp: "settings",
+          returnState: {
+            settingsView: "wallpaper",
+            settingsModal: null,
+            settingsInputDraft: "",
+          },
+        };
+
+        if (kind === "camera") {
+          window.PhoneMedia?.openCameraForResult(options);
+          return;
+        }
+
+        window.PhoneMedia?.openGalleryForResult(options);
+      },
+
+      applyMediaResult: async (media, request) => {
+        const currentSettings = ctx.contract.settings.get(ctx.getState());
+        const imageUrl = media?.imageUrl || media?.url || "";
+        if (!imageUrl) return false;
+
+        if (request?.purpose === "wallpaper") {
+          await persistSettings(
+            {
+              ...currentSettings,
+              customWallpaper: imageUrl,
+              wallpaper: "custom",
+            },
+            {
+              settingsView: "wallpaper",
+              settingsModal: null,
+              settingsInputDraft: "",
+            },
+          );
+          return true;
+        }
+
+        if (request?.purpose === "profile_photo") {
+          await persistSettings(
+            {
+              ...currentSettings,
+              profilePhoto: imageUrl,
+            },
+            {
+              settingsView: "profile",
+              settingsModal: null,
+              settingsInputDraft: "",
+            },
+          );
+          return true;
+        }
+
+        return false;
       },
     };
   },

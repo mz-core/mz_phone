@@ -145,6 +145,29 @@ registerApp({
               }
             </div>
 
+            <div class="contacts-editor-avatar-actions">
+              <button class="contacts-avatar-action" onclick="window.ContactsApp.openAvatarCamera()">
+                <i data-lucide="camera"></i>
+                <span>Camera</span>
+              </button>
+
+              <button class="contacts-avatar-action" onclick="window.ContactsApp.openAvatarGallery()">
+                <i data-lucide="images"></i>
+                <span>Galeria</span>
+              </button>
+
+              ${
+                contactDraft.avatar
+                  ? `
+                    <button class="contacts-avatar-action" onclick="window.ContactsApp.clearAvatar()">
+                      <i data-lucide="x"></i>
+                      <span>Remover</span>
+                    </button>
+                  `
+                  : ""
+              }
+            </div>
+
             <div class="contacts-editor-fields">
               <div class="contacts-field-card">
                 <label class="contacts-field-label">Nome</label>
@@ -445,6 +468,80 @@ registerApp({
             [field]: value,
           },
         });
+      },
+
+      openAvatarCamera: () => {
+        const state = ctx.getState();
+        const draft = state.contactDraft || emptyDraft();
+
+        if (window.PhoneMedia?.openCameraForResult) {
+          window.PhoneMedia.openCameraForResult({
+            purpose: "contact_avatar",
+            returnApp: "contacts",
+            returnState: {
+              contactsView: "editor",
+              selectedContactId: state.selectedContactId || null,
+              contactDraft: draft,
+            },
+          });
+        }
+      },
+
+      openAvatarGallery: () => {
+        const state = ctx.getState();
+        const draft = state.contactDraft || emptyDraft();
+
+        if (window.PhoneMedia?.openGalleryForResult) {
+          window.PhoneMedia.openGalleryForResult({
+            purpose: "contact_avatar",
+            returnApp: "contacts",
+            returnState: {
+              contactsView: "editor",
+              selectedContactId: state.selectedContactId || null,
+              contactDraft: draft,
+            },
+          });
+        }
+      },
+
+      clearAvatar: () => {
+        const state = ctx.getState();
+        const draft = state.contactDraft || emptyDraft();
+
+        ctx.patchState({
+          contactDraft: {
+            ...draft,
+            avatar: "",
+          },
+        });
+
+        ctx.renderCurrentApp();
+      },
+
+      applyMediaResult: (media, request) => {
+        const imageUrl = String(media?.imageUrl || media?.url || "").trim();
+        if (!imageUrl || request?.purpose !== "contact_avatar") return false;
+
+        const state = ctx.getState();
+        const draft =
+          request?.returnState?.contactDraft ||
+          state.contactDraft ||
+          emptyDraft();
+
+        ctx.patchState({
+          contactsView: "editor",
+          selectedContactId:
+            request?.returnState?.selectedContactId ||
+            state.selectedContactId ||
+            null,
+          contactDraft: {
+            ...draft,
+            avatar: imageUrl,
+          },
+        });
+
+        ctx.renderCurrentApp();
+        return true;
       },
 
       saveContact: async () => {

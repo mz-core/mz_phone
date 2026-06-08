@@ -97,6 +97,89 @@ local function validImageUrl(value)
     return false, 'local_path_not_allowed'
 end
 
+local function sanitizeOptionalImageUrl(value)
+    value = Security.SanitizeText(value or '', 1000)
+    if value == '' then
+        return ''
+    end
+
+    local ok, _, normalized = validImageUrl(value)
+    if ok then
+        return normalized
+    end
+
+    return ''
+end
+
+local function validHttpUrl(value)
+    value = Security.SanitizeText(value or '', 1000)
+    if value == '' or value:find('[%s<>"]') then
+        return false, 'invalid_url'
+    end
+
+    local scheme = value:match('^([%a][%w+%-%.]*):')
+    scheme = scheme and scheme:lower() or ''
+    if scheme ~= 'http' and scheme ~= 'https' then
+        return false, 'scheme_not_allowed'
+    end
+
+    return true, nil, value
+end
+
+local function normalizeMessageType(value)
+    value = Security.SanitizeText(value or 'text', 30):lower()
+    if value == 'image' or value == 'location' or value == 'url' then
+        return value
+    end
+
+    return 'text'
+end
+
+local function serverPlayerCoords(source)
+    local okPed, ped = pcall(GetPlayerPed, source)
+    if not okPed or not ped or ped == 0 then
+        return nil
+    end
+
+    local okCoords, coords = pcall(GetEntityCoords, ped)
+    if not okCoords or not coords then
+        return nil
+    end
+
+    local x = tonumber(coords.x)
+    local y = tonumber(coords.y)
+    local z = tonumber(coords.z)
+    if not x or not y or not z then
+        return nil
+    end
+
+    if math.abs(x) > 10000.0 or math.abs(y) > 10000.0 or math.abs(z) > 2000.0 then
+        return nil
+    end
+
+    return {
+        x = x,
+        y = y,
+        z = z
+    }
+end
+
+local function messageNotifyText(messageType, message)
+    if messageType == 'image' then
+        return 'Foto'
+    end
+
+    if messageType == 'location' then
+        return 'Localizacao compartilhada'
+    end
+
+    if messageType == 'url' then
+        return 'Link'
+    end
+
+    return message
+end
+
 local function normalizeGalleryPhoto(row)
     if type(row) ~= 'table' then
         return nil
@@ -410,9 +493,9 @@ function MZPhoneServer.Service.Save(source, data)
         theme = Security.SanitizeText(data.theme or 'dark', 32),
         wallpaper = Security.SanitizeText(data.wallpaper or 'default', 120),
         ringtone = Security.SanitizeText(data.ringtone or 'default', 80),
-        profilePhoto = Security.SanitizeText(data.profilePhoto or '', 1000),
+        profilePhoto = sanitizeOptionalImageUrl(data.profilePhoto),
         settings = {
-            customWallpaper = Security.SanitizeText(data.customWallpaper or '', 1000)
+            customWallpaper = sanitizeOptionalImageUrl(data.customWallpaper)
         }
     }
 
@@ -439,7 +522,7 @@ function MZPhoneServer.Service.CreateContact(source, data)
     local payload = {
         name = Security.SanitizeText(data.name, Config.Security.NameMaxLength),
         number = Security.NormalizePhone(data.number),
-        avatar = Security.SanitizeText(data.avatar, 1000),
+        avatar = sanitizeOptionalImageUrl(data.avatar),
         favorite = data.favorite == true
     }
 
@@ -472,7 +555,7 @@ function MZPhoneServer.Service.UpdateContact(source, contactId, data)
     local payload = {
         name = Security.SanitizeText(data.name or current.name, Config.Security.NameMaxLength),
         number = Security.NormalizePhone(data.number or current.number),
-        avatar = Security.SanitizeText(data.avatar or current.avatar or '', 1000),
+        avatar = sanitizeOptionalImageUrl(data.avatar or current.avatar or ''),
         favorite = favorite
     }
 
@@ -575,16 +658,75 @@ function MZPhoneServer.Service.SendMessage(source, conversationId, data)
     end
 
     data = type(data) == 'table' and data or {}
+    local messageType = normalizeMessageType(data.message_type or data.messageType)
     local message = Security.SanitizeText(data.message, Config.Security.TextMaxLength)
-    if message == '' then
-        return
+    local mediaUrl = ''
+    local metadata = {}
+
+    if messageType == 'text' then
+        if message == '' then
+            return
+        end
+    elseif messageType == 'image' then
+        if message == '' then
+            message = 'Foto'
+        end
+
+        local photoId = tonumber(data.photoId or data.photo_id or data.mediaId)
+        if photoId then
+            local photo = Repository.GetGalleryPhotoById(photoId)
+            if not photo or photo.owner_citizenid ~= identity.citizenid or photo.deleted_at ~= nil then
+                Security.Log('security', source, ('tentou enviar foto sem posse photo=%s'):format(tostring(photoId)))
+                return
+            end
+
+            mediaUrl = sanitizeOptionalImageUrl(photo.image_url)
+            if mediaUrl == '' then
+                return
+            end
+
+            metadata.photoId = photo.id
+            metadata.source = Security.SanitizeText(photo.source or data.source or 'gallery', 32)
+        else
+            mediaUrl = sanitizeOptionalImageUrl(data.media_url or data.mediaUrl or '')
+            if mediaUrl == '' then
+                return
+            end
+
+            metadata.source = Security.SanitizeText(data.source or 'url', 32)
+        end
+    elseif messageType == 'location' then
+        local coords = serverPlayerCoords(source)
+        if not coords then
+            Framework.Notify(source, { type = 'error', title = 'Mensagens', message = 'Nao foi possivel obter sua localizacao.' })
+            return
+        end
+
+        message = message ~= '' and message or 'Localizacao compartilhada'
+        metadata = {
+            x = coords.x,
+            y = coords.y,
+            z = coords.z,
+            label = Security.SanitizeText(data.label or 'Localizacao', 80),
+            source = 'server'
+        }
+    elseif messageType == 'url' then
+        local rawUrl = data.media_url or data.mediaUrl or message
+        local okUrl, _, normalizedUrl = validHttpUrl(rawUrl)
+        if not okUrl then
+            return
+        end
+
+        mediaUrl = normalizedUrl
+        message = message ~= '' and message or normalizedUrl
     end
 
     local payload = {
         sender = 'me',
         message = message,
-        messageType = Security.SanitizeText(data.message_type or 'text', 30),
-        mediaUrl = Security.SanitizeText(data.media_url or '', 1000)
+        messageType = messageType,
+        mediaUrl = mediaUrl,
+        metadata = metadata
     }
 
     Repository.CreateMessage(identity.citizenid, conversationId, payload)
@@ -604,7 +746,8 @@ function MZPhoneServer.Service.SendMessage(source, conversationId, data)
         sender = 'other',
         message = message,
         messageType = payload.messageType,
-        mediaUrl = payload.mediaUrl
+        mediaUrl = payload.mediaUrl,
+        metadata = payload.metadata
     })
     Repository.IncrementUnread(targetConversationId)
 
@@ -614,7 +757,7 @@ function MZPhoneServer.Service.SendMessage(source, conversationId, data)
         TriggerClientEvent('mz_phone:client:notify', targetSource, {
             type = 'message',
             title = senderDisplayName,
-            message = message,
+            message = messageNotifyText(payload.messageType, message),
             appLabel = 'Mensagens'
         })
     end

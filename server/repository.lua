@@ -62,6 +62,10 @@ local function migrateGalleryColumns()
     addColumnIfMissing('mz_phone_gallery', 'deleted_at', 'TIMESTAMP NULL')
 end
 
+local function migrateMessageColumns()
+    addColumnIfMissing('mz_phone_messages', 'metadata', 'JSON NULL')
+end
+
 local function migrateCallColumns()
     addColumnIfMissing('mz_phone_calls', 'caller_citizenid', 'VARCHAR(64) NULL')
     addColumnIfMissing('mz_phone_calls', 'receiver_citizenid', 'VARCHAR(64) NULL')
@@ -123,6 +127,7 @@ function Repository.Prepare()
             message TEXT NULL,
             message_type VARCHAR(30) NOT NULL DEFAULT 'text',
             media_url TEXT NULL,
+            metadata JSON NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             INDEX idx_mz_phone_messages_conversation (conversation_id),
             INDEX idx_mz_phone_messages_owner (owner_citizenid)
@@ -215,6 +220,7 @@ function Repository.Prepare()
 
     migrateLegacyColumns()
     migrateGalleryColumns()
+    migrateMessageColumns()
     migrateCallColumns()
 end
 
@@ -387,6 +393,30 @@ function Repository.GetConversations(citizenid)
                 ORDER BY favorite DESC, id DESC
                 LIMIT 1
             ), target_name, target_number) AS display_name,
+            (
+                SELECT message
+                FROM mz_phone_messages
+                WHERE conversation_id = mz_phone_conversations.id
+                    AND owner_citizenid = mz_phone_conversations.owner_citizenid
+                ORDER BY id DESC
+                LIMIT 1
+            ) AS last_message,
+            (
+                SELECT message_type
+                FROM mz_phone_messages
+                WHERE conversation_id = mz_phone_conversations.id
+                    AND owner_citizenid = mz_phone_conversations.owner_citizenid
+                ORDER BY id DESC
+                LIMIT 1
+            ) AS last_message_type,
+            (
+                SELECT created_at
+                FROM mz_phone_messages
+                WHERE conversation_id = mz_phone_conversations.id
+                    AND owner_citizenid = mz_phone_conversations.owner_citizenid
+                ORDER BY id DESC
+                LIMIT 1
+            ) AS last_message_at,
             unread_count,
             created_at,
             updated_at
@@ -468,7 +498,7 @@ function Repository.GetMessages(citizenid, conversationId)
     end
 
     return MySQL.query.await([[
-        SELECT id, conversation_id, sender, message, message_type, media_url, created_at
+        SELECT id, conversation_id, sender, message, message_type, media_url, metadata, created_at
         FROM mz_phone_messages
         WHERE conversation_id = ? AND owner_citizenid = ?
         ORDER BY id ASC
@@ -477,15 +507,16 @@ end
 
 function Repository.CreateMessage(citizenid, conversationId, data)
     local insertId = MySQL.insert.await([[
-        INSERT INTO mz_phone_messages (conversation_id, owner_citizenid, sender, message, message_type, media_url)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO mz_phone_messages (conversation_id, owner_citizenid, sender, message, message_type, media_url, metadata)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
     ]], {
         conversationId,
         citizenid,
         data.sender,
         data.message,
         data.messageType,
-        data.mediaUrl
+        data.mediaUrl,
+        json.encode(type(data.metadata) == 'table' and data.metadata or {})
     })
 
     MySQL.update.await([[

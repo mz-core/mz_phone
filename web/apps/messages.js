@@ -16,6 +16,7 @@ registerApp({
       messagesPickingContact: false,
       messagesActionModal: false,
       messagesMediaDraft: "",
+      messagesMediaPreview: state.messagesMediaPreview || null,
     });
 
     if (window.PhoneAPI?.getConversations) {
@@ -176,6 +177,37 @@ function renderPickContact(ctx, state) {
   `;
 }
 
+function parseMessageMetadata(msg) {
+  const metadata = msg?.metadata;
+  if (!metadata) return {};
+  if (typeof metadata === "object") return metadata;
+  if (typeof metadata !== "string") return {};
+
+  try {
+    const parsed = JSON.parse(metadata);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function getLastMessagePreview(state, conversationId, conversation = null) {
+  const messages = getConversationMessages(state, conversationId);
+  const last = messages[messages.length - 1] || {
+    message: conversation?.last_message || "",
+    message_type: conversation?.last_message_type || "",
+  };
+  if (!last.message && !last.message_type) return "Toque para abrir a conversa";
+
+  const text = String(last.message || "").trim();
+  if (last.message_type === "image") return "\u{1F4F7} Foto";
+  if (last.message_type === "location") return "\u{1F4CD} Localizacao";
+  if (last.message_type === "url") return "\u{1F517} Link";
+  if (last.message_type && last.message_type !== "text") return "Midia enviada";
+
+  return text || "Mensagem";
+}
+
 function renderList(ctx, state) {
   const conversations = state.conversations || [];
   const search = String(state.messagesSearch || "")
@@ -185,7 +217,7 @@ function renderList(ctx, state) {
   const filtered = conversations.filter((conv) => {
     const name = String(getConversationDisplayName(conv)).toLowerCase();
     const number = String(conv.target_number || "").toLowerCase();
-    const preview = getLastMessagePreview(state, conv.id).toLowerCase();
+    const preview = getLastMessagePreview(state, conv.id, conv).toLowerCase();
 
     return (
       !search ||
@@ -236,8 +268,8 @@ function renderList(ctx, state) {
 
 function renderConversationItem(state, conv) {
   const unread = conv.unread_count || 0;
-  const preview = getLastMessagePreview(state, conv.id);
-  const time = getLastMessageTime(state, conv.id, conv.updated_at);
+  const preview = getLastMessagePreview(state, conv.id, conv);
+  const time = getLastMessageTime(state, conv.id, conv.last_message_at || conv.updated_at);
   const avatar = getConversationAvatar(state, conv);
 
   return `
@@ -268,6 +300,8 @@ function renderChat(ctx, state) {
     : null;
   const modal = state.messagesActionModal || false;
   const mediaDraft = state.messagesMediaDraft || "";
+  const mediaPreview = state.messagesMediaPreview || null;
+  const imageViewer = state.messagesImageViewer || null;
 
   return `
     <div class="app-page">
@@ -287,11 +321,8 @@ function renderChat(ctx, state) {
 
         <div class="app-header-right">
           <div class="msg-actions">
-            <button class="msg-action-btn" onclick="window.MessagesApp.fakeCall()">
+            <button class="msg-action-btn" onclick="window.MessagesApp.startVoiceCall()">
               <i data-lucide="phone"></i>
-            </button>
-            <button class="msg-action-btn" onclick="window.MessagesApp.fakeVideoCall()">
-              <i data-lucide="video"></i>
             </button>
           </div>
         </div>
@@ -306,6 +337,20 @@ function renderChat(ctx, state) {
       </div>
 
       <div class="msg-input">
+
+        ${
+          mediaPreview
+            ? `
+              <div class="msg-media-card">
+                <img class="msg-media-image" src="${window.Utils.escapeHtmlAttr(mediaPreview.imageUrl || mediaPreview.url)}" alt="Anexo" />
+                <div class="msg-media-label">Imagem anexada</div>
+                <button class="msg-media-remove" onclick="window.MessagesApp.clearMediaPreview()" aria-label="Remover imagem">
+                  <i data-lucide="x"></i>
+                </button>
+              </div>
+            `
+            : ""
+        }
 
         <button class="msg-btn emoji" onclick="window.MessagesApp.toggleEmoji()">
           😊
@@ -351,12 +396,12 @@ function renderChat(ctx, state) {
               <div class="msg-modal" onclick="event.stopPropagation()">
                 <div class="msg-modal-title">Enviar</div>
 
-                <button class="msg-modal-option" onclick="window.MessagesApp.sendFakeMedia('camera')">
+                <button class="msg-modal-option" onclick="window.MessagesApp.openCameraAttachment()">
                   <i data-lucide="camera"></i>
                   <span>Câmera</span>
                 </button>
 
-                <button class="msg-modal-option" onclick="window.MessagesApp.sendFakeMedia('gallery')">
+                <button class="msg-modal-option" onclick="window.MessagesApp.openGalleryAttachment()">
                   <i data-lucide="images"></i>
                   <span>Galeria</span>
                 </button>
@@ -366,7 +411,7 @@ function renderChat(ctx, state) {
                   <span>URL</span>
                 </button>
 
-                <button class="msg-modal-option" onclick="window.MessagesApp.sendFakeMedia('location')">
+                <button class="msg-modal-option" onclick="window.MessagesApp.sendLocation()">
                   <i data-lucide="map-pinned"></i>
                   <span>Localização</span>
                 </button>
@@ -403,6 +448,22 @@ function renderChat(ctx, state) {
                 <button class="msg-modal-cancel" onclick="window.MessagesApp.closeActions()">
                   Cancelar
                 </button>
+              </div>
+            </div>
+          `
+          : ""
+      }
+
+      ${
+        imageViewer
+          ? `
+            <div class="msg-viewer-backdrop">
+              <div class="msg-viewer">
+                <button class="msg-viewer-close" onclick="window.MessagesApp.closeImageViewer()" aria-label="Fechar">
+                  <i data-lucide="x"></i>
+                </button>
+                <img class="msg-viewer-image" src="${window.Utils.escapeHtmlAttr(imageViewer.url)}" alt="Imagem" />
+                <div class="msg-viewer-caption">${window.Utils.escapeHtml(imageViewer.caption || "Foto")}</div>
               </div>
             </div>
           `
@@ -462,12 +523,72 @@ function renderMessage(msg) {
   `;
 }
 
+function renderMessage(msg) {
+  const isMe = msg.sender === "me";
+  const type = msg.message_type || "text";
+  const metadata = parseMessageMetadata(msg);
+  const text = String(msg.message || "").trim();
+  const time = window.Utils.escapeHtml(window.Utils.formatTime(msg.created_at));
+
+  let contentHtml = `<div class="msg-bubble-text">${window.Utils.escapeHtml(text)}</div>`;
+
+  if (type === "image") {
+    const imageUrl = String(msg.media_url || "").trim();
+    const encodedImageUrl = encodeURIComponent(imageUrl);
+    const encodedCaption = encodeURIComponent(text || "Foto");
+    contentHtml = imageUrl
+      ? `
+        <button class="msg-image-button" onclick="window.MessagesApp.openImageViewer(decodeURIComponent('${encodedImageUrl}'), decodeURIComponent('${encodedCaption}'))">
+          <img class="msg-media-image" src="${window.Utils.escapeHtmlAttr(imageUrl)}" alt="Imagem" onerror="this.closest('.msg-image-button')?.classList.add('is-error')" />
+          <span class="msg-image-error"><i data-lucide="image-off"></i> Imagem indisponivel</span>
+        </button>
+        ${text && text !== "Foto" ? `<div class="msg-media-label">${window.Utils.escapeHtml(text)}</div>` : ""}
+      `
+      : `
+        <div class="msg-media-placeholder">
+          <i data-lucide="image-off"></i>
+          <span>Imagem indisponivel</span>
+        </div>
+      `;
+  } else if (type === "location") {
+    const x = Number(metadata.x);
+    const y = Number(metadata.y);
+    const canMark = Number.isFinite(x) && Number.isFinite(y);
+    contentHtml = `
+      <button class="msg-location-card" ${canMark ? `onclick="window.MessagesApp.markLocation(${x}, ${y})"` : ""}>
+        <span class="msg-location-icon"><i data-lucide="map-pinned"></i></span>
+        <span class="msg-location-text">
+          <strong>${window.Utils.escapeHtml(text || "Localizacao compartilhada")}</strong>
+          <small>${canMark ? "Toque para marcar no GPS" : "Coordenadas indisponiveis"}</small>
+        </span>
+      </button>
+    `;
+  } else if (type === "url") {
+    const url = String(msg.media_url || text || "").trim();
+    contentHtml = `
+      <div class="msg-url-card">
+        <i data-lucide="link"></i>
+        <span>${window.Utils.escapeHtml(url || "Link")}</span>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="msg-bubble ${isMe ? "me" : "other"}">
+      ${contentHtml}
+      <span class="msg-time">${time}</span>
+    </div>
+  `;
+}
+
 window.MessagesApp = {
   async open(id) {
     window.PhoneApp.patchState({
       selectedConversationId: id,
       messagesActionModal: false,
       messagesMediaDraft: "",
+      messagesMediaPreview: null,
+      messagesImageViewer: null,
     });
 
     if (window.PhoneAPI?.getConversationMessages) {
@@ -494,6 +615,8 @@ window.MessagesApp = {
       messageDraft: "",
       messagesActionModal: false,
       messagesMediaDraft: "",
+      messagesMediaPreview: null,
+      messagesImageViewer: null,
     });
 
     window.PhoneApp.renderCurrentApp();
@@ -502,19 +625,29 @@ window.MessagesApp = {
   async send() {
     const state = window.PhoneApp.getState();
     const text = String(state.messageDraft || "").trim();
-    if (!text) return;
+    const mediaPreview = state.messagesMediaPreview || null;
+    const mediaUrl = String(
+      mediaPreview?.imageUrl || mediaPreview?.url || "",
+    ).trim();
+    const photoId = mediaPreview?.id || mediaPreview?.photoId || null;
+
+    if (!text && !mediaUrl) return;
 
     if (window.PhoneAPI?.sendMessage) {
       await window.PhoneAPI.sendMessage({
         conversationId: state.selectedConversationId,
-        message: text,
-        sender: "me",
-        message_type: "text",
+        message: text || "Foto",
+        message_type: mediaUrl ? "image" : "text",
+        photoId,
+        media_url: photoId ? "" : mediaUrl,
+        source: mediaPreview?.source || "",
       });
     }
 
     window.PhoneApp.patchState({
       messageDraft: "",
+      messagesMediaPreview: null,
+      messagesActionModal: false,
     });
 
     setTimeout(() => {
@@ -535,6 +668,14 @@ window.MessagesApp = {
     window.PhoneApp.patchState({
       messagesMediaDraft: value,
     });
+  },
+
+  clearMediaPreview() {
+    window.PhoneApp.patchState({
+      messagesMediaPreview: null,
+    });
+
+    window.PhoneApp.renderCurrentApp();
   },
 
   search(value) {
@@ -587,21 +728,144 @@ window.MessagesApp = {
     window.PhoneApp.renderCurrentApp();
   },
 
-  async sendFakeMedia(kind) {
+  async sendLocation() {
+    const state = window.PhoneApp.getState();
+    if (!state.selectedConversationId) return;
+
+    window.PhoneApp.patchState({
+      messagesActionModal: false,
+      messagesMediaDraft: "",
+    });
+
+    if (window.PhoneAPI?.sendMessage) {
+      await window.PhoneAPI.sendMessage({
+        conversationId: state.selectedConversationId,
+        message_type: "location",
+        message: "Localizacao compartilhada",
+      });
+    }
+
+    setTimeout(() => {
+      const chat = document.querySelector(".msg-chat");
+      if (chat) {
+        chat.scrollTop = chat.scrollHeight;
+      }
+    }, 0);
+  },
+
+  openImageViewer(url, caption = "Foto") {
+    if (!url) return;
+
+    window.PhoneApp.patchState({
+      messagesImageViewer: {
+        url,
+        caption,
+      },
+    });
+
+    window.PhoneApp.renderCurrentApp();
+  },
+
+  closeImageViewer() {
+    window.PhoneApp.patchState({
+      messagesImageViewer: null,
+    });
+
+    window.PhoneApp.renderCurrentApp();
+  },
+
+  async markLocation(x, y) {
+    const nx = Number(x);
+    const ny = Number(y);
+    if (!Number.isFinite(nx) || !Number.isFinite(ny)) return;
+
+    const result = window.PhoneAPI?.setWaypoint
+      ? await window.PhoneAPI.setWaypoint({ x: nx, y: ny })
+      : { ok: false };
+
+    if (result?.ok === false && window.PhoneUI?.notify) {
+      window.PhoneUI.notify({
+        type: "error",
+        title: "Mensagens",
+        message: "Nao foi possivel marcar o GPS.",
+      });
+    }
+  },
+
+  openCameraAttachment() {
+    const state = window.PhoneApp.getState();
+    if (!state.selectedConversationId) return;
+
+    window.PhoneApp.patchState({
+      messagesActionModal: false,
+      messagesMediaDraft: "",
+    });
+
+    const options = {
+      purpose: "message_attachment",
+      returnApp: "messages",
+      returnState: {
+        selectedConversationId: state.selectedConversationId,
+        messagesActionModal: false,
+        messagesMediaDraft: "",
+      },
+    };
+
+    if (window.PhoneMedia?.openCameraForResult) {
+      window.PhoneMedia.openCameraForResult(options);
+    }
+  },
+
+  openGalleryAttachment() {
+    const state = window.PhoneApp.getState();
+    if (!state.selectedConversationId) return;
+
+    window.PhoneApp.patchState({
+      messagesActionModal: false,
+      messagesMediaDraft: "",
+    });
+
+    const options = {
+      purpose: "message_attachment",
+      returnApp: "messages",
+      returnState: {
+        selectedConversationId: state.selectedConversationId,
+        messagesActionModal: false,
+        messagesMediaDraft: "",
+      },
+    };
+
+    if (window.PhoneMedia?.openGalleryForResult) {
+      window.PhoneMedia.openGalleryForResult(options);
+    }
+  },
+
+  applyMediaResult(media, request) {
+    const imageUrl = String(media?.imageUrl || media?.url || "").trim();
+    if (!imageUrl || request?.purpose !== "message_attachment") return false;
+
+    window.PhoneApp.patchState({
+      selectedConversationId:
+        request?.returnState?.selectedConversationId ||
+        window.PhoneApp.getState().selectedConversationId,
+      messagesActionModal: false,
+      messagesMediaDraft: "",
+      messagesMediaPreview: {
+        ...media,
+        photoId: media?.id || media?.photoId || null,
+        imageUrl,
+      },
+    });
+
+    window.PhoneApp.renderCurrentApp();
+    return true;
+  },
+
+  async legacyMediaDisabled(kind) {
     const state = window.PhoneApp.getState();
     if (!state.selectedConversationId) return;
 
     const map = {
-      camera: {
-        message: "Foto tirada",
-        message_type: "image",
-        media_url: "https://picsum.photos/320/220?random=11",
-      },
-      gallery: {
-        message: "Foto da galeria",
-        message_type: "image",
-        media_url: "https://picsum.photos/320/220?random=12",
-      },
       location: {
         message: "Localização compartilhada",
         message_type: "location",
@@ -615,7 +879,6 @@ window.MessagesApp = {
     if (window.PhoneAPI?.sendMessage) {
       await window.PhoneAPI.sendMessage({
         conversationId: state.selectedConversationId,
-        sender: "me",
         message: payload.message,
         message_type: payload.message_type,
         media_url: payload.media_url,
@@ -625,6 +888,7 @@ window.MessagesApp = {
     window.PhoneApp.patchState({
       messagesActionModal: false,
       messagesMediaDraft: "",
+      messagesMediaPreview: null,
     });
   },
 
@@ -636,7 +900,6 @@ window.MessagesApp = {
     if (window.PhoneAPI?.sendMessage) {
       await window.PhoneAPI.sendMessage({
         conversationId: state.selectedConversationId,
-        sender: "me",
         message: url,
         message_type: "url",
         media_url: url,
@@ -646,6 +909,7 @@ window.MessagesApp = {
     window.PhoneApp.patchState({
       messagesActionModal: false,
       messagesMediaDraft: "",
+      messagesMediaPreview: null,
     });
   },
 
@@ -736,7 +1000,7 @@ window.MessagesApp = {
     }, 0);
   },
 
-  async fakeCall() {
+  async startVoiceCall() {
     const state = window.PhoneApp.getState();
     const conversation = (state.conversations || []).find(
       (item) => String(item.id) === String(state.selectedConversationId),
@@ -756,7 +1020,7 @@ window.MessagesApp = {
     }
   },
 
-  fakeVideoCall() {
+  videoCallUnavailable() {
     if (window.PhoneUI?.notify) {
       window.PhoneUI.notify({
         type: "info",

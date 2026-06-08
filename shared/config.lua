@@ -44,6 +44,7 @@ Config.Phone = {
     Camera = {
         Enabled = true,
         Mode = 'gameplay',
+        OpenDirectly = true,
         HidePhoneWhileActive = true,
         HideHudBeforeCapture = true,
         CaptureDelayMs = 250,
@@ -53,7 +54,57 @@ Config.Phone = {
             Enabled = true,
             MinFov = 30.0,
             MaxFov = 70.0,
-            Step = 2.0
+            Step = 2.5,
+            DefaultFov = 55.0
+        },
+        SwitchCamera = {
+            Enabled = true,
+            Key = 38,
+            AllowSelfie = true
+        },
+        BackCamera = {
+            Enabled = true,
+            Offset = {
+                x = 0.0,
+                y = 0.42,
+                z = 0.72
+            },
+            RotationOffset = {
+                pitch = 0.0,
+                roll = 0.0,
+                yaw = 0.0
+            },
+            HidePlayerWhileActive = true,
+            HidePropBeforeCapture = true
+        },
+        SelfieCamera = {
+            Enabled = true,
+            Distance = 1.15,
+            Height = 0.72,
+            SideOffset = 0.0,
+            LookAtHeight = 0.62,
+            Fov = 55.0,
+            MinFov = 35.0,
+            MaxFov = 75.0,
+            ShowPlayer = true,
+            Orbit = {
+                Enabled = true,
+                MaxYaw = 35.0,
+                MaxPitch = 18.0,
+                Sensitivity = 2.0
+            }
+        },
+        HoldAnimation = {
+            Enabled = true,
+            Dict = 'cellphone@',
+            Anim = 'cellphone_text_read_base',
+            Prop = 'prop_npc_phone_02',
+            Bone = 28422,
+            Offset = { x = 0.01, y = 0.015, z = 0.0 },
+            Rotation = { x = -10.0, y = 0.0, z = 5.0 },
+            HidePropBeforeCapture = true,
+            HidePropInBackMode = true,
+            ShowPropInSelfieMode = true
         },
         FirstPerson = {
             Enabled = true,

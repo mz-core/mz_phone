@@ -7,12 +7,27 @@ local cameraMode = false
 local isCapturing = false
 local previousPhoneOpen = false
 local restoreApp = 'camera'
+local cameraResultMode = false
+local cameraResultReturnApp = 'home'
 local cameraCam = nil
 local cameraFov = nil
+local previousGameplayFov = nil
 local previousPedCamViewMode = nil
 local previousVehicleCamViewMode = nil
 local forcedFirstPerson = false
 local playerHiddenForCapture = false
+local playerHiddenForCamera = false
+local cameraFacing = 'back'
+local cameraHoldProp = nil
+local cameraHoldHidden = false
+local cameraHoldAnim = {
+    dict = nil,
+    anim = nil
+}
+local cameraRotX = 0.0
+local cameraRotZ = 0.0
+local selfieOrbitYaw = 0.0
+local selfieOrbitPitch = 0.0
 
 local function cameraConfig()
     return Config.Phone and Config.Phone.Camera or {}
@@ -21,6 +36,31 @@ end
 local function firstPersonConfig()
     local cfg = cameraConfig()
     return type(cfg.FirstPerson) == 'table' and cfg.FirstPerson or {}
+end
+
+local function zoomConfig()
+    local cfg = cameraConfig()
+    return type(cfg.Zoom) == 'table' and cfg.Zoom or {}
+end
+
+local function switchCameraConfig()
+    local cfg = cameraConfig()
+    return type(cfg.SwitchCamera) == 'table' and cfg.SwitchCamera or {}
+end
+
+local function backCameraConfig()
+    local cfg = cameraConfig()
+    return type(cfg.BackCamera) == 'table' and cfg.BackCamera or {}
+end
+
+local function selfieCameraConfig()
+    local cfg = cameraConfig()
+    return type(cfg.SelfieCamera) == 'table' and cfg.SelfieCamera or {}
+end
+
+local function holdAnimationConfig()
+    local cfg = cameraConfig()
+    return type(cfg.HoldAnimation) == 'table' and cfg.HoldAnimation or {}
 end
 
 local function uploadConfig()
@@ -61,6 +101,139 @@ local function releasePhoneFocus(reason)
     end
 end
 
+local function loadAnimDict(dict)
+    if HasAnimDictLoaded(dict) then
+        return true
+    end
+
+    RequestAnimDict(dict)
+
+    local timeout = 0
+    while not HasAnimDictLoaded(dict) and timeout < 200 do
+        Wait(10)
+        timeout = timeout + 1
+    end
+
+    return HasAnimDictLoaded(dict)
+end
+
+local function loadModel(model)
+    if HasModelLoaded(model) then
+        return true
+    end
+
+    RequestModel(model)
+
+    local timeout = 0
+    while not HasModelLoaded(model) and timeout < 200 do
+        Wait(10)
+        timeout = timeout + 1
+    end
+
+    return HasModelLoaded(model)
+end
+
+local function clamp(value, minValue, maxValue)
+    return math.max(minValue, math.min(maxValue, value))
+end
+
+local function rotationToDirection(rot)
+    local pitch = math.rad(rot.x)
+    local yaw = math.rad(rot.z)
+    local cosPitch = math.cos(pitch)
+
+    return vector3(
+        -math.sin(yaw) * cosPitch,
+        math.cos(yaw) * cosPitch,
+        math.sin(pitch)
+    )
+end
+
+local function setBackCameraTransform()
+    if not cameraCam then
+        return
+    end
+
+    local ped = PlayerPedId()
+    local coords = GetEntityCoords(ped)
+    local forward = GetEntityForwardVector(ped)
+    local right = vector3(forward.y, -forward.x, 0.0)
+    local backCfg = backCameraConfig()
+    local offset = type(backCfg.Offset) == 'table' and backCfg.Offset or {}
+    local rotOffset = type(backCfg.RotationOffset) == 'table' and backCfg.RotationOffset or {}
+    local offsetX = tonumber(offset.x) or 0.0
+    local offsetY = tonumber(offset.y) or 0.42
+    local offsetZ = tonumber(offset.z) or 0.72
+
+    SetCamCoord(
+        cameraCam,
+        coords.x + (right.x * offsetX) + (forward.x * offsetY),
+        coords.y + (right.y * offsetX) + (forward.y * offsetY),
+        coords.z + offsetZ
+    )
+    SetCamRot(
+        cameraCam,
+        cameraRotX + (tonumber(rotOffset.pitch) or 0.0),
+        tonumber(rotOffset.roll) or 0.0,
+        cameraRotZ + (tonumber(rotOffset.yaw) or 0.0),
+        2
+    )
+    SetCamFov(cameraCam, cameraFov)
+end
+
+local function zoomLabel()
+    local zoom = zoomConfig()
+    local selfie = selfieCameraConfig()
+    local maxFov = cameraFacing == 'front' and (tonumber(selfie.MaxFov) or 75.0) or (tonumber(zoom.MaxFov) or 70.0)
+    local current = tonumber(cameraFov) or maxFov
+    local ratio = maxFov / math.max(current, 1.0)
+
+    return ('%.1fx'):format(ratio)
+end
+
+local function cameraFovLimits()
+    if cameraFacing == 'front' then
+        local selfie = selfieCameraConfig()
+        return {
+            min = tonumber(selfie.MinFov) or 35.0,
+            max = tonumber(selfie.MaxFov) or 75.0,
+            default = tonumber(selfie.Fov) or 55.0,
+            step = tonumber(zoomConfig().Step) or 2.5
+        }
+    end
+
+    local zoom = zoomConfig()
+    return {
+        min = tonumber(zoom.MinFov) or 30.0,
+        max = tonumber(zoom.MaxFov) or 70.0,
+        default = tonumber(zoom.DefaultFov) or tonumber(zoom.MaxFov) or 55.0,
+        step = tonumber(zoom.Step) or 2.5
+    }
+end
+
+local function cameraHudPayload(status, extra)
+    local switchCfg = switchCameraConfig()
+    local payload = {
+        status = status or 'ready',
+        mode = tostring(cameraConfig().Mode or 'gameplay'),
+        facing = cameraFacing,
+        zoom = zoomConfig(),
+        zoomLabel = zoomLabel(),
+        switchCamera = {
+            Enabled = switchCfg.Enabled == true and switchCfg.AllowSelfie ~= false,
+            Key = tonumber(switchCfg.Key) or 38
+        }
+    }
+
+    if type(extra) == 'table' then
+        for key, value in pairs(extra) do
+            payload[key] = value
+        end
+    end
+
+    return payload
+end
+
 local function sendCameraHud(visible, data)
     SendNUIMessage({
         action = 'cameraHud',
@@ -84,9 +257,14 @@ local function reopenPhone(appId)
     MZPhone.SetOpen(true)
 
     SetTimeout(150, function()
+        local targetApp = appId or restoreApp or 'camera'
+        if targetApp == 'home' then
+            return
+        end
+
         SendNUIMessage({
             action = 'openApp',
-            app = appId or restoreApp or 'camera'
+            app = targetApp
         })
     end)
 end
@@ -97,15 +275,17 @@ local function forceFirstPersonCamera()
         return
     end
 
-    local okPed, pedMode = pcall(GetFollowPedCamViewMode)
-    if okPed then
-        previousPedCamViewMode = pedMode
-    end
+    if not forcedFirstPerson then
+        local okPed, pedMode = pcall(GetFollowPedCamViewMode)
+        if okPed then
+            previousPedCamViewMode = pedMode
+        end
 
-    if type(GetFollowVehicleCamViewMode) == 'function' then
-        local okVehicle, vehicleMode = pcall(GetFollowVehicleCamViewMode)
-        if okVehicle then
-            previousVehicleCamViewMode = vehicleMode
+        if type(GetFollowVehicleCamViewMode) == 'function' then
+            local okVehicle, vehicleMode = pcall(GetFollowVehicleCamViewMode)
+            if okVehicle then
+                previousVehicleCamViewMode = vehicleMode
+            end
         end
     end
 
@@ -139,7 +319,7 @@ end
 
 local function hidePlayerForCapture()
     local fp = firstPersonConfig()
-    if fp.HidePlayerBeforeCapture ~= true then
+    if fp.HidePlayerBeforeCapture ~= true or cameraFacing == 'front' then
         return 0
     end
 
@@ -154,8 +334,146 @@ local function restorePlayerVisibility()
         return
     end
 
-    SetEntityVisible(PlayerPedId(), true, false)
+    SetEntityVisible(PlayerPedId(), not playerHiddenForCamera, false)
     playerHiddenForCapture = false
+end
+
+local function HideLocalPlayerForCamera(reason)
+    local backCfg = backCameraConfig()
+    if cameraFacing ~= 'back' or backCfg.HidePlayerWhileActive ~= true then
+        return
+    end
+
+    SetEntityVisible(PlayerPedId(), false, false)
+    playerHiddenForCamera = true
+    cameraLog(('hide player reason=%s'):format(tostring(reason or 'camera_back')))
+end
+
+local function RestoreLocalPlayerAfterCamera(reason)
+    if not playerHiddenForCamera then
+        return
+    end
+
+    SetEntityVisible(PlayerPedId(), true, false)
+    playerHiddenForCamera = false
+    cameraLog(('restore player reason=%s'):format(tostring(reason or 'camera_restore')))
+end
+
+local ApplyCameraPropVisibility
+
+local function StartCameraHoldAnim()
+    local cfg = holdAnimationConfig()
+    if cfg.Enabled ~= true then
+        return
+    end
+
+    local dict = tostring(cfg.Dict or 'cellphone@')
+    local anim = tostring(cfg.Anim or 'cellphone_text_read_base')
+    local ped = PlayerPedId()
+
+    if loadAnimDict(dict) then
+        TaskPlayAnim(ped, dict, anim, 3.0, 3.0, -1, 49, 0.0, false, false, false)
+        cameraHoldAnim.dict = dict
+        cameraHoldAnim.anim = anim
+    end
+
+    if DoesEntityExist(cameraHoldProp) then
+        return
+    end
+
+    local model = GetHashKey(tostring(cfg.Prop or 'prop_npc_phone_02'))
+    if not loadModel(model) then
+        return
+    end
+
+    local coords = GetEntityCoords(ped)
+    cameraHoldProp = CreateObject(model, coords.x, coords.y, coords.z, true, true, false)
+
+    if DoesEntityExist(cameraHoldProp) then
+        local offset = type(cfg.Offset) == 'table' and cfg.Offset or {}
+        local rotation = type(cfg.Rotation) == 'table' and cfg.Rotation or {}
+        AttachEntityToEntity(
+            cameraHoldProp,
+            ped,
+            GetPedBoneIndex(ped, tonumber(cfg.Bone) or 28422),
+            tonumber(offset.x) or 0.0,
+            tonumber(offset.y) or 0.0,
+            tonumber(offset.z) or 0.0,
+            tonumber(rotation.x) or 0.0,
+            tonumber(rotation.y) or 0.0,
+            tonumber(rotation.z) or 0.0,
+            true, true, false, true, 1, true
+        )
+    end
+
+    SetModelAsNoLongerNeeded(model)
+    ApplyCameraPropVisibility()
+end
+
+local function StopCameraHoldAnim()
+    local ped = PlayerPedId()
+
+    if cameraHoldAnim.dict and cameraHoldAnim.anim then
+        StopAnimTask(ped, cameraHoldAnim.dict, cameraHoldAnim.anim, 1.0)
+    end
+
+    if DoesEntityExist(cameraHoldProp) then
+        DeleteEntity(cameraHoldProp)
+    end
+
+    cameraHoldProp = nil
+    cameraHoldHidden = false
+    cameraHoldAnim.dict = nil
+    cameraHoldAnim.anim = nil
+end
+
+local function HideCameraPropForCapture()
+    local cfg = holdAnimationConfig()
+    local backCfg = backCameraConfig()
+    local hideInBack = cfg.HidePropBeforeCapture == true or backCfg.HidePropBeforeCapture == true
+    if cameraFacing == 'back' and not hideInBack then
+        return
+    end
+
+    if cameraFacing == 'front' and cfg.HidePropBeforeCapture ~= true then
+        return
+    end
+
+    if DoesEntityExist(cameraHoldProp) then
+        SetEntityVisible(cameraHoldProp, false, false)
+        cameraHoldHidden = true
+    end
+end
+
+local function RestoreCameraPropAfterCapture()
+    if cameraHoldHidden and DoesEntityExist(cameraHoldProp) then
+        SetEntityVisible(cameraHoldProp, true, false)
+    end
+
+    cameraHoldHidden = false
+
+    if cameraMode then
+        ApplyCameraPropVisibility()
+    end
+end
+
+function ApplyCameraPropVisibility()
+    if not DoesEntityExist(cameraHoldProp) then
+        return
+    end
+
+    local cfg = holdAnimationConfig()
+    if cameraFacing == 'back' and cfg.HidePropInBackMode == true then
+        SetEntityVisible(cameraHoldProp, false, false)
+        return
+    end
+
+    if cameraFacing == 'front' and cfg.ShowPropInSelfieMode ~= false then
+        SetEntityVisible(cameraHoldProp, true, false)
+        return
+    end
+
+    SetEntityVisible(cameraHoldProp, false, false)
 end
 
 local function finishRequest(requestId, payload)
@@ -167,6 +485,7 @@ local function finishRequest(requestId, payload)
     pendingRequests[requestId] = nil
     payload = payload or { ok = false, error = 'unknown' }
     restorePlayerVisibility()
+    RestoreCameraPropAfterCapture()
 
     if pending.cb then
         pending.cb(payload)
@@ -178,14 +497,13 @@ local function finishRequest(requestId, payload)
             cameraNotify('Foto salva na galeria.', 'success')
             MZPhone.Camera.StopCameraMode('saved', {
                 restorePhone = true,
-                openApp = 'gallery'
+                openApp = cameraResultMode and cameraResultReturnApp or 'gallery'
             })
         else
             isCapturing = false
-            sendCameraHud(true, {
-                status = 'error',
+            sendCameraHud(true, cameraHudPayload('error', {
                 error = payload.error or 'save_failed'
-            })
+            }))
             sendCameraStatus({
                 ok = false,
                 error = payload.error or 'save_failed'
@@ -355,23 +673,36 @@ local function mergeUploadMetadata(metadata, uploadMeta)
 end
 
 function MZPhone.Camera.CreatePhoneCamera()
-    local cfg = cameraConfig()
-    local mode = tostring(cfg.Mode or 'gameplay')
-
-    if mode ~= 'scripted' then
-        cameraFov = GetGameplayCamFov()
-        return false
+    if cameraCam then
+        MZPhone.Camera.DestroyPhoneCamera()
     end
 
     local ped = PlayerPedId()
-    local coords = GetGameplayCamCoord()
-    local rot = GetGameplayCamRot(2)
+    local coords = GetEntityCoords(ped)
 
-    cameraFov = GetGameplayCamFov()
     cameraCam = CreateCam('DEFAULT_SCRIPTED_CAMERA', true)
-    SetCamCoord(cameraCam, coords.x, coords.y, coords.z)
-    SetCamRot(cameraCam, rot.x, rot.y, rot.z, 2)
     SetCamFov(cameraCam, cameraFov)
+
+    if cameraFacing == 'front' then
+        local selfie = selfieCameraConfig()
+        local heading = GetEntityHeading(ped) + selfieOrbitYaw
+        local rad = math.rad(heading)
+        local distance = tonumber(selfie.Distance) or 1.15
+        local sideOffset = tonumber(selfie.SideOffset) or 0.0
+        local height = tonumber(selfie.Height) or 0.72
+        local lookAtHeight = tonumber(selfie.LookAtHeight) or 0.62
+        local forward = vector3(-math.sin(rad), math.cos(rad), 0.0)
+        local right = vector3(forward.y, -forward.x, 0.0)
+        local camX = coords.x + (forward.x * distance) + (right.x * sideOffset)
+        local camY = coords.y + (forward.y * distance) + (right.y * sideOffset)
+        local camZ = coords.z + height + (selfieOrbitPitch * 0.01)
+
+        SetCamCoord(cameraCam, camX, camY, camZ)
+        PointCamAtCoord(cameraCam, coords.x, coords.y, coords.z + lookAtHeight)
+    else
+        setBackCameraTransform()
+    end
+
     RenderScriptCams(true, false, 0, true, true)
     FreezeEntityPosition(ped, true)
 
@@ -386,26 +717,128 @@ function MZPhone.Camera.DestroyPhoneCamera()
     end
 end
 
+local function updateSelfieCamera()
+    if not cameraCam then
+        return
+    end
+
+    local ped = PlayerPedId()
+    local coords = GetEntityCoords(ped)
+
+    if cameraFacing ~= 'front' then
+        local lookX = GetControlNormal(0, 1)
+        local lookY = GetControlNormal(0, 2)
+
+        if math.abs(lookX) < 0.001 then
+            lookX = GetDisabledControlNormal(0, 1)
+        end
+
+        if math.abs(lookY) < 0.001 then
+            lookY = GetDisabledControlNormal(0, 2)
+        end
+
+        cameraRotZ = cameraRotZ - (lookX * 7.5)
+        cameraRotX = clamp(cameraRotX - (lookY * 7.5), -75.0, 75.0)
+
+        setBackCameraTransform()
+        return
+    end
+
+    local selfie = selfieCameraConfig()
+    local orbit = type(selfie.Orbit) == 'table' and selfie.Orbit or {}
+
+    if orbit.Enabled == true then
+        local lookX = GetControlNormal(0, 1)
+        local lookY = GetControlNormal(0, 2)
+
+        if math.abs(lookX) < 0.001 then
+            lookX = GetDisabledControlNormal(0, 1)
+        end
+
+        if math.abs(lookY) < 0.001 then
+            lookY = GetDisabledControlNormal(0, 2)
+        end
+
+        local sensitivity = tonumber(orbit.Sensitivity) or 2.0
+        selfieOrbitYaw = clamp(selfieOrbitYaw + (lookX * sensitivity), -(tonumber(orbit.MaxYaw) or 35.0), tonumber(orbit.MaxYaw) or 35.0)
+        selfieOrbitPitch = clamp(selfieOrbitPitch + (lookY * sensitivity), -(tonumber(orbit.MaxPitch) or 18.0), tonumber(orbit.MaxPitch) or 18.0)
+    end
+
+    local heading = GetEntityHeading(ped) + selfieOrbitYaw
+    local rad = math.rad(heading)
+    local distance = tonumber(selfie.Distance) or 1.15
+    local sideOffset = tonumber(selfie.SideOffset) or 0.0
+    local height = tonumber(selfie.Height) or 0.72
+    local lookAtHeight = tonumber(selfie.LookAtHeight) or 0.62
+    local forward = vector3(-math.sin(rad), math.cos(rad), 0.0)
+    local right = vector3(forward.y, -forward.x, 0.0)
+    local camX = coords.x + (forward.x * distance) + (right.x * sideOffset)
+    local camY = coords.y + (forward.y * distance) + (right.y * sideOffset)
+    local camZ = coords.z + height + (selfieOrbitPitch * 0.01)
+
+    SetCamCoord(cameraCam, camX, camY, camZ)
+    SetCamFov(cameraCam, cameraFov)
+    PointCamAtCoord(cameraCam, coords.x, coords.y, coords.z + lookAtHeight)
+end
+
+local function applyCameraFov()
+    if cameraCam then
+        SetCamFov(cameraCam, cameraFov)
+    end
+end
+
+local function setupCameraFov()
+    local limits = cameraFovLimits()
+
+    previousGameplayFov = GetGameplayCamFov()
+    cameraFov = clamp(limits.default, limits.min, limits.max)
+end
+
+local function restoreCameraFov()
+    previousGameplayFov = nil
+    cameraFov = nil
+end
+
+local function toggleCameraFacing()
+    local switchCfg = switchCameraConfig()
+    if switchCfg.Enabled ~= true or switchCfg.AllowSelfie == false then
+        return
+    end
+
+    if cameraFacing == 'back' then
+        cameraFacing = 'front'
+        RestoreLocalPlayerAfterCamera('camera_selfie')
+        selfieOrbitYaw = 0.0
+        selfieOrbitPitch = 0.0
+        local limits = cameraFovLimits()
+        cameraFov = clamp(limits.default, limits.min, limits.max)
+        MZPhone.Camera.CreatePhoneCamera()
+        ApplyCameraPropVisibility()
+    else
+        cameraFacing = 'back'
+        local limits = cameraFovLimits()
+        cameraFov = clamp(limits.default, limits.min, limits.max)
+        MZPhone.Camera.CreatePhoneCamera()
+        HideLocalPlayerForCamera('camera_back')
+        ApplyCameraPropVisibility()
+    end
+
+    sendCameraHud(true, cameraHudPayload('ready'))
+end
+
 local function updateCameraZoom(direction)
-    local cfg = cameraConfig()
-    local zoom = type(cfg.Zoom) == 'table' and cfg.Zoom or {}
+    local zoom = zoomConfig()
     if zoom.Enabled ~= true then
         return
     end
 
     local currentFov = cameraFov or GetGameplayCamFov()
-    local step = tonumber(zoom.Step) or 2.0
-    local minFov = tonumber(zoom.MinFov) or 30.0
-    local maxFov = tonumber(zoom.MaxFov) or 70.0
-    local nextFov = math.max(minFov, math.min(maxFov, currentFov + (direction * step)))
+    local limits = cameraFovLimits()
+    local nextFov = clamp(currentFov + (direction * limits.step), limits.min, limits.max)
 
     cameraFov = nextFov
-
-    if cameraCam then
-        SetCamFov(cameraCam, nextFov)
-    else
-        SetGameplayCamRelativePitch(GetGameplayCamRelativePitch(), 1.0)
-    end
+    applyCameraFov()
+    sendCameraHud(true, cameraHudPayload('ready'))
 end
 
 local function canCapture(cb)
@@ -467,10 +900,9 @@ function MZPhone.Camera.CapturePhoto(data, cb)
         captureError = payload or { ok = false, error = 'save_failed' }
         cb(captureError)
     end) then
-        sendCameraHud(true, {
-            status = 'error',
+        sendCameraHud(true, cameraHudPayload('error', {
             error = captureError and captureError.error or 'save_failed'
-        })
+        }))
         sendCameraStatus(captureError or { ok = false, error = 'save_failed' })
         return
     end
@@ -482,7 +914,7 @@ function MZPhone.Camera.CapturePhoto(data, cb)
 
     isCapturing = true
     lastCaptureAt = GetGameTimer()
-    sendCameraHud(true, { status = 'capturing' })
+    sendCameraHud(true, cameraHudPayload('capturing'))
     pendingRequests[requestId] = {
         cb = cb,
         mode = 'camera',
@@ -506,6 +938,7 @@ function MZPhone.Camera.CapturePhoto(data, cb)
         end
 
         releasePhoneFocus('camera_capture')
+        HideCameraPropForCapture()
 
         local hideDelay = hidePlayerForCapture()
         if hideDelay > 0 then
@@ -522,6 +955,7 @@ function MZPhone.Camera.CapturePhoto(data, cb)
                 },
                 function(response)
                     restorePlayerVisibility()
+                    RestoreCameraPropAfterCapture()
 
                     local imageUrl, uploadErr, uploadMeta = decodeScreenshotResponse(response, upload.adapter)
                     if not imageUrl then
@@ -536,6 +970,7 @@ function MZPhone.Camera.CapturePhoto(data, cb)
 
         if not exportOk then
             restorePlayerVisibility()
+            RestoreCameraPropAfterCapture()
             cameraLog(('screenshot-basic failed request=%s error=%s'):format(requestId, tostring(exportErr)))
             finishRequest(requestId, { ok = false, error = 'screenshot_basic_failed' })
         end
@@ -555,7 +990,11 @@ function MZPhone.Camera.StopCameraMode(reason, options)
 
     sendCameraHud(false)
     restorePlayerVisibility()
+    RestoreLocalPlayerAfterCamera('camera_stop')
+    RestoreCameraPropAfterCapture()
+    StopCameraHoldAnim()
     MZPhone.Camera.DestroyPhoneCamera()
+    restoreCameraFov()
     restoreCameraView()
     FreezeEntityPosition(PlayerPedId(), false)
     releasePhoneFocus(reason or 'camera_stop')
@@ -567,11 +1006,16 @@ function MZPhone.Camera.StopCameraMode(reason, options)
     if options.restorePhone ~= false and reason ~= 'resource_stop' then
         reopenPhone(options.openApp or restoreApp)
     end
+
+    cameraResultMode = false
+    cameraResultReturnApp = 'home'
 end
 
 function MZPhone.Camera.HandleCameraControls()
     CreateThread(function()
         while cameraMode do
+            updateSelfieCamera()
+
             DisableControlAction(0, 24, true)
             DisableControlAction(0, 25, true)
             DisableControlAction(0, 37, true)
@@ -581,6 +1025,8 @@ function MZPhone.Camera.HandleCameraControls()
             DisableControlAction(0, 142, true)
             DisableControlAction(0, 199, true)
             DisableControlAction(0, 200, true)
+            DisableControlAction(0, 241, true)
+            DisableControlAction(0, 242, true)
 
             if not isCapturing then
                 if IsDisabledControlJustPressed(0, 24) or IsControlJustPressed(0, 191) then
@@ -589,11 +1035,16 @@ function MZPhone.Camera.HandleCameraControls()
                     or IsDisabledControlJustPressed(0, 200)
                     or IsControlJustPressed(0, 177)
                     or IsControlJustPressed(0, 322) then
-                    MZPhone.Camera.StopCameraMode('camera_cancelled', { restorePhone = true })
-                elseif IsControlJustPressed(0, 241) then
+                    MZPhone.Camera.StopCameraMode('camera_cancelled', {
+                        restorePhone = cameraResultMode,
+                        openApp = cameraResultReturnApp
+                    })
+                elseif IsDisabledControlJustPressed(0, 241) then
                     updateCameraZoom(-1)
-                elseif IsControlJustPressed(0, 242) then
+                elseif IsDisabledControlJustPressed(0, 242) then
                     updateCameraZoom(1)
+                elseif IsControlJustPressed(0, tonumber(switchCameraConfig().Key) or 38) then
+                    toggleCameraFacing()
                 end
             end
 
@@ -618,7 +1069,12 @@ function MZPhone.Camera.StartCameraMode(data, cb)
     end
 
     previousPhoneOpen = MZPhone.IsOpen and MZPhone.IsOpen() == true or false
-    restoreApp = tostring(data.restoreApp or 'camera')
+    restoreApp = tostring(data.restoreApp or 'home')
+    cameraResultMode = data.forResult == true
+    cameraResultReturnApp = tostring(data.restoreApp or 'home')
+    cameraFacing = 'back'
+    selfieOrbitYaw = 0.0
+    selfieOrbitPitch = 0.0
 
     if cfg.HidePhoneWhileActive ~= false and previousPhoneOpen then
         MZPhone.SetOpen(false)
@@ -626,16 +1082,19 @@ function MZPhone.Camera.StartCameraMode(data, cb)
 
     releasePhoneFocus('camera_start')
     forceFirstPersonCamera()
+    local gameplayRot = GetGameplayCamRot(2)
+    cameraRotX = gameplayRot.x
+    cameraRotZ = gameplayRot.z
+    setupCameraFov()
     MZPhone.Camera.CreatePhoneCamera()
+    StartCameraHoldAnim()
+    HideLocalPlayerForCamera('camera_start')
+    ApplyCameraPropVisibility()
 
     cameraMode = true
     isCapturing = false
 
-    sendCameraHud(true, {
-        status = 'ready',
-        mode = tostring(cfg.Mode or 'gameplay'),
-        zoom = cfg.Zoom or {}
-    })
+    sendCameraHud(true, cameraHudPayload('ready'))
 
     MZPhone.Camera.HandleCameraControls()
     cb({ ok = true, mode = tostring(cfg.Mode or 'gameplay') })

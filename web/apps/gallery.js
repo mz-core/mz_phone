@@ -5,8 +5,12 @@ registerApp({
   order: 50,
 
   onOpen(ctx) {
+    const state = ctx.getState();
+    const isPicker = Boolean(state.galleryPicker || state.appParams?.picker);
+
     ctx.patchState({
       gallerySelectedPhotoId: null,
+      galleryPicker: isPicker,
     });
 
     if (window.PhoneAPI?.getGallery) {
@@ -17,14 +21,15 @@ registerApp({
   render(ctx) {
     const state = ctx.getState();
     const photos = window.AppContract.gallery.get(state);
+    const isPicker = Boolean(state.galleryPicker);
     const selectedId = state.gallerySelectedPhotoId;
     const selected = photos.find((photo) => String(photo.id) === String(selectedId));
 
     if (selected) {
-      return renderGalleryViewer(selected);
+      return renderGalleryViewer(selected, isPicker);
     }
 
-    return renderGalleryGrid(photos);
+    return renderGalleryGrid(photos, isPicker);
   },
 });
 
@@ -49,14 +54,24 @@ function galleryDate(value) {
   }).format(date);
 }
 
-function renderGalleryGrid(photos) {
+function renderGalleryGrid(photos, isPicker = false) {
   return `
     <div class="app-page gallery-page">
       <div class="app-header app-header--standard">
-        <div class="app-header-left"></div>
+        <div class="app-header-left">
+          ${
+            isPicker
+              ? `
+                <button class="app-header-text-btn" onclick="window.GalleryApp.cancelPicker()">
+                  Cancelar
+                </button>
+              `
+              : ""
+          }
+        </div>
 
         <div class="app-header-center">
-          <div class="app-title">Galeria</div>
+          <div class="app-title">${isPicker ? "Selecionar foto" : "Galeria"}</div>
         </div>
 
         <div class="app-header-right">
@@ -71,7 +86,7 @@ function renderGalleryGrid(photos) {
           photos.length
             ? `
               <div class="gallery-grid">
-                ${photos.map(renderGalleryTile).join("")}
+                ${photos.map((photo) => renderGalleryTile(photo, isPicker)).join("")}
               </div>
             `
             : `
@@ -87,12 +102,12 @@ function renderGalleryGrid(photos) {
   `;
 }
 
-function renderGalleryTile(photo) {
+function renderGalleryTile(photo, isPicker = false) {
   const image = galleryPhotoUrl(photo);
   const caption = photo.caption || galleryDate(photo.created_at) || "Foto";
 
   return `
-    <button class="gallery-tile" onclick="window.GalleryApp.openPhoto('${String(photo.id)}')">
+    <button class="gallery-tile" onclick="${isPicker ? `window.GalleryApp.selectPhoto('${String(photo.id)}')` : `window.GalleryApp.openPhoto('${String(photo.id)}')`}">
       ${
         image
           ? `<img src="${window.Utils.escapeHtml(image)}" alt="${window.Utils.escapeHtml(caption)}" loading="lazy" />`
@@ -104,7 +119,7 @@ function renderGalleryTile(photo) {
   `;
 }
 
-function renderGalleryViewer(photo) {
+function renderGalleryViewer(photo, isPicker = false) {
   const image = photo.image_url || photo.thumbnail_url || "";
   const title = photo.caption || "Foto";
 
@@ -122,9 +137,15 @@ function renderGalleryViewer(photo) {
         </div>
 
         <div class="app-header-right">
-          <button class="app-header-icon-btn" onclick="window.GalleryApp.toggleFavorite('${String(photo.id)}')" aria-label="Favorito">
-            <i data-lucide="${photo.favorite ? "star" : "star-off"}"></i>
-          </button>
+          ${
+            isPicker
+              ? ""
+              : `
+                <button class="app-header-icon-btn" onclick="window.GalleryApp.toggleFavorite('${String(photo.id)}')" aria-label="Favorito">
+                  <i data-lucide="${photo.favorite ? "star" : "star-off"}"></i>
+                </button>
+              `
+          }
         </div>
       </div>
 
@@ -142,10 +163,21 @@ function renderGalleryViewer(photo) {
           <div class="gallery-viewer-date">${window.Utils.escapeHtml(galleryDate(photo.created_at))}</div>
         </div>
 
-        <button class="gallery-delete-btn" onclick="window.GalleryApp.deletePhoto('${String(photo.id)}')">
-          <i data-lucide="trash-2"></i>
-          <span>Excluir foto</span>
-        </button>
+        ${
+          isPicker
+            ? `
+              <button class="gallery-delete-btn" onclick="window.GalleryApp.selectPhoto('${String(photo.id)}')">
+                <i data-lucide="check"></i>
+                <span>Usar esta foto</span>
+              </button>
+            `
+            : `
+              <button class="gallery-delete-btn" onclick="window.GalleryApp.deletePhoto('${String(photo.id)}')">
+                <i data-lucide="trash-2"></i>
+                <span>Excluir foto</span>
+              </button>
+            `
+        }
       </div>
     </div>
   `;
@@ -163,6 +195,29 @@ window.GalleryApp = {
       gallerySelectedPhotoId: photoId,
     });
     window.PhoneApp.renderCurrentApp();
+  },
+
+  selectPhoto(photoId) {
+    const state = window.PhoneApp.getState();
+    const photos = window.AppContract.gallery.get(state);
+    const photo = photos.find((item) => String(item.id) === String(photoId));
+    if (!photo) return;
+
+    if (state.galleryPicker && window.PhoneMedia?.complete) {
+      window.PhoneMedia.complete(photo, "gallery");
+      return;
+    }
+
+    window.GalleryApp.openPhoto(photoId);
+  },
+
+  cancelPicker() {
+    if (window.PhoneMedia?.cancel) {
+      window.PhoneMedia.cancel();
+      return;
+    }
+
+    window.goHome();
   },
 
   closeViewer() {
