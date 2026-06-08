@@ -50,6 +50,12 @@ Config.Phone = {
         CaptureDelayMs = 250,
         AllowSelfie = true,
         MaxDistance = 2.0,
+        Controls = {
+            FreezePlayerWhileActive = true,
+            DisableMovementControls = true,
+            DisableCombatControls = true,
+            AllowLookControls = true
+        },
         Zoom = {
             Enabled = true,
             MinFov = 30.0,
@@ -86,11 +92,12 @@ Config.Phone = {
         },
         SelfieCamera = {
             Enabled = true,
-            UsePhonePropAsLens = true,
+            UsePhonePropAsLens = true, -- usado nos modos selfie scriptados: framed/exact
+            AnchorMode = 'native_reference', -- native_reference, framed ou exact
             PhoneLensOffset = {
                 x = 0.0,
-                y = 0.04,
-                z = 0.03
+                y = 0.08,
+                z = 0.04
             },
             FallbackHandOffset = {
                 x = 0.10,
@@ -99,24 +106,32 @@ Config.Phone = {
             },
             LookAt = {
                 Bone = 31086,
-                Offset = { x = 0.0, y = 0.0, z = -0.10 }
+                Offset = { x = 0.0, y = 0.0, z = -0.05 }
             },
             DistanceFallback = 0.85,
             HeightFallback = 0.68,
+            MinDistanceFromLookAt = 1.05,
             HidePropInSelfieCapture = false,
-            Distance = 1.15,
+            Distance = 1.45,
             Height = 0.72,
+            HeightOffset = 0.05,
             SideOffset = 0.0,
             LookAtHeight = 0.62,
-            Fov = 55.0,
+            Fov = 65.0,
             MinFov = 35.0,
             MaxFov = 75.0,
             ShowPlayer = true,
+            AnchorInfluence = {
+                Side = 0.12,
+                Height = 0.08
+            },
             Orbit = {
                 Enabled = true,
                 MaxYaw = 35.0,
                 MaxPitch = 18.0,
-                Sensitivity = 2.0
+                Sensitivity = 2.0,
+                SideRange = 0.35,
+                HeightRange = 0.22
             }
         },
         HoldAnimation = {
@@ -147,7 +162,12 @@ Config.Phone = {
             DisableWeapon = true,
             CleanupOnStop = true,
             ActiveProfile = 'text',
-            SelfieProfile = 'text',
+            SelfieProfile = 'camera',
+            Flags = {
+                Default = 49,
+                InVehicle = 49,
+                Selfie = 49
+            },
             DebugCommand = true,
             DebugTestDurationMs = 10000,
             Profiles = {
@@ -159,6 +179,11 @@ Config.Phone = {
                 call = {
                     Dict = 'cellphone@',
                     Anim = 'cellphone_call_listen_base',
+                    Flag = 49
+                },
+                camera = {
+                    Dict = 'cellphone@',
+                    Anim = 'cellphone_text_read_base',
                     Flag = 49
                 },
                 selfie = {

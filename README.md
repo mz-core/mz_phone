@@ -46,7 +46,20 @@ O comando `/mzphone_debug` exige `Config.Debug.AllowCommand = true` e permissao 
 
 ## Camera e selfie
 
-A camera do `mz_phone` e scriptada. Ela nao usa `CreateMobilePhone`/`CellCamActivate`.
+A camera back do `mz_phone` continua scriptada. A selfie padrao usa `AnchorMode = 'native_reference'`, inspirado no celular de referencia, com `CreateMobilePhone`/`CellCamActivate` apenas no modo selfie.
+
+Enquanto o modo camera fica ativo, o jogador fica parado por padrao. Isso evita o efeito de correr no lugar enquanto a animacao de celular esta ativa:
+
+```lua
+Config.Phone.Camera.Controls = {
+    FreezePlayerWhileActive = true,
+    DisableMovementControls = true,
+    DisableCombatControls = true,
+    AllowLookControls = true
+}
+```
+
+O mouse, scroll de zoom, `E`, clique/ENTER para foto e ESC/BACKSPACE para cancelar continuam funcionando.
 
 No modo back, o player nao fica invisivel globalmente por padrao. A camera fica na frente do ped e olha para frente usando:
 
@@ -58,19 +71,38 @@ Config.Phone.Camera.BackCamera.HidePlayerOnlyForCapture = true
 Config.Phone.Camera.BackCamera.UseLocalInvisible = true
 ```
 
-Na selfie, a lente tenta usar o prop do celular como origem. Se o prop ainda nao existir, usa a mao do ped como fallback:
+Na selfie, o modo padrao usa a camera nativa frontal do GTA como referencia, igual ao celular em `celular/resource` + `celular/web`. A camera back continua scriptada no `mz_phone`; somente a selfie usa esse modo para evitar enquadramento torto, colado no rosto ou preso na orelha:
 
 ```lua
 Config.Phone.Camera.SelfieCamera.UsePhonePropAsLens = true
-Config.Phone.Camera.SelfieCamera.PhoneLensOffset = { x = 0.0, y = 0.04, z = 0.03 }
+Config.Phone.Camera.SelfieCamera.AnchorMode = 'native_reference' -- native_reference, framed ou exact
+Config.Phone.Camera.SelfieCamera.PhoneLensOffset = { x = 0.0, y = 0.08, z = 0.04 }
 Config.Phone.Camera.SelfieCamera.FallbackHandOffset = { x = 0.10, y = 0.18, z = 0.04 }
+Config.Phone.Camera.SelfieCamera.MinDistanceFromLookAt = 1.05
+Config.Phone.Camera.SelfieCamera.Distance = 1.45
+Config.Phone.Camera.SelfieCamera.Fov = 65.0
 Config.Phone.Camera.SelfieCamera.LookAt = {
     Bone = 31086,
-    Offset = { x = 0.0, y = 0.0, z = -0.10 }
+    Offset = { x = 0.0, y = 0.0, z = -0.05 }
+}
+Config.Phone.Camera.SelfieCamera.Orbit.SideRange = 0.35
+Config.Phone.Camera.SelfieCamera.Orbit.HeightRange = 0.22
+```
+
+O modo `native_reference` usa `CreateMobilePhone`, `CellCamActivate` e `CellFrontCamActivate` apenas na selfie. Se quiser voltar para a selfie 100% scriptada para calibrar offsets, troque `AnchorMode` para `framed`.
+
+O perfil recomendado para selfie scriptada e `camera`. Evite `call` na selfie, porque ele leva o telefone para a orelha e deixa a camera de lado:
+
+```lua
+Config.Phone.Camera.HoldAnimation.SelfieProfile = 'camera'
+Config.Phone.Camera.HoldAnimation.Flags = {
+    Default = 49,
+    InVehicle = 49,
+    Selfie = 49
 }
 ```
 
-Para calibrar, ajuste `PhoneLensOffset` quando o prop existir, e `FallbackHandOffset` quando a camera estiver usando a mao. Ative `Config.Debug.Enabled = true` para ver logs de `camera/selfie` e `camera/back`.
+Para calibrar, ajuste `Distance` para afastar/aproximar a selfie, `HoldAnimation.Selfie.Offset/Rotation` para mover o prop na mao, e `PhoneLensOffset`/`FallbackHandOffset` para alinhar a referencia do celular. Se quiser mais movimento no mouse, aumente `Orbit.SideRange` e `Orbit.HeightRange`. Ative `Config.Debug.Enabled = true` para ver logs de `camera/selfie`, `camera/back`, `camera/anim` e `camera/prop`.
 
 ## Servico externo mz_phone_server
 

@@ -11,6 +11,8 @@ local cameraResultMode = false
 local cameraResultReturnApp = 'home'
 local cameraCam = nil
 local cameraFov = nil
+local cameraPlayerFrozen = false
+local nativeSelfieActive = false
 local previousGameplayFov = nil
 local previousPedCamViewMode = nil
 local previousVehicleCamViewMode = nil
@@ -66,10 +68,22 @@ local function selfieCameraConfig()
     return type(cfg.SelfieCamera) == 'table' and cfg.SelfieCamera or {}
 end
 
+local function useNativeSelfieCamera()
+    local selfie = selfieCameraConfig()
+    return cameraFacing == 'front' and tostring(selfie.AnchorMode or '') == 'native_reference'
+end
+
 local function holdAnimationConfig()
     local cfg = cameraConfig()
     return type(cfg.HoldAnimation) == 'table' and cfg.HoldAnimation or {}
 end
+
+local function controlsConfig()
+    local cfg = cameraConfig()
+    return type(cfg.Controls) == 'table' and cfg.Controls or {}
+end
+
+local cameraLog = function() end
 
 local function trim(value)
     if type(value) ~= 'string' then
@@ -241,7 +255,7 @@ local function uploadConfig()
     return resolveCameraUploadConfig()
 end
 
-local function cameraLog(message)
+cameraLog = function(message)
     if MZPhone.Debug and MZPhone.Debug.Log then
         MZPhone.Debug.Log('camera', message)
     end
@@ -274,6 +288,100 @@ local function releasePhoneFocus(reason)
             SetNuiFocusKeepInput(false)
         end
     end
+end
+
+local function CellFrontCamActivateCompat(state)
+    Citizen.InvokeNative(0x2491A93618B7D838, state == true)
+end
+
+local function stopNativeSelfieCamera(reason)
+    if not nativeSelfieActive then
+        return
+    end
+
+    DestroyMobilePhone()
+    CellFrontCamActivateCompat(false)
+    CellCamActivate(false, false)
+    nativeSelfieActive = false
+    cameraLog(('native selfie stop reason=%s'):format(tostring(reason or 'camera_stop')))
+end
+
+local function startNativeSelfieCamera()
+    stopNativeSelfieCamera('restart_native_selfie')
+    ClearPedSecondaryTask(PlayerPedId())
+    ClearPedTasks(PlayerPedId())
+    CreateMobilePhone(1)
+    CellCamActivate(true, true)
+    CellFrontCamActivateCompat(true)
+    nativeSelfieActive = true
+    cameraLog('native selfie start')
+end
+
+local function setCameraPlayerFrozen(state, reason)
+    local controls = controlsConfig()
+    local shouldFreeze = state == true and controls.FreezePlayerWhileActive ~= false
+    local ped = PlayerPedId()
+
+    if shouldFreeze then
+        if not cameraPlayerFrozen then
+            cameraLog(('freeze player reason=%s'):format(tostring(reason or 'camera')))
+        end
+
+        FreezeEntityPosition(ped, true)
+        cameraPlayerFrozen = true
+        return
+    end
+
+    if cameraPlayerFrozen or state == false then
+        FreezeEntityPosition(ped, false)
+        if cameraPlayerFrozen then
+            cameraLog(('unfreeze player reason=%s'):format(tostring(reason or 'camera')))
+        end
+        cameraPlayerFrozen = false
+    end
+end
+
+local function applyCameraControlLocks()
+    local controls = controlsConfig()
+
+    if controls.FreezePlayerWhileActive ~= false then
+        setCameraPlayerFrozen(true, 'camera_loop')
+    end
+
+    if controls.DisableMovementControls ~= false then
+        DisableControlAction(0, 30, true) -- INPUT_MOVE_LR
+        DisableControlAction(0, 31, true) -- INPUT_MOVE_UD
+        DisableControlAction(0, 32, true) -- INPUT_MOVE_UP_ONLY
+        DisableControlAction(0, 33, true) -- INPUT_MOVE_DOWN_ONLY
+        DisableControlAction(0, 34, true) -- INPUT_MOVE_LEFT_ONLY
+        DisableControlAction(0, 35, true) -- INPUT_MOVE_RIGHT_ONLY
+        DisableControlAction(0, 21, true) -- INPUT_SPRINT
+        DisableControlAction(0, 22, true) -- INPUT_JUMP
+        DisableControlAction(0, 36, true) -- INPUT_DUCK
+        DisableControlAction(0, 44, true) -- INPUT_COVER
+    end
+
+    if controls.DisableCombatControls ~= false then
+        DisableControlAction(0, 24, true) -- INPUT_ATTACK
+        DisableControlAction(0, 25, true) -- INPUT_AIM
+        DisableControlAction(0, 37, true) -- INPUT_SELECT_WEAPON
+        DisableControlAction(0, 45, true) -- INPUT_RELOAD
+        DisableControlAction(0, 69, true)
+        DisableControlAction(0, 70, true)
+        DisableControlAction(0, 92, true)
+        DisableControlAction(0, 114, true)
+        DisableControlAction(0, 140, true)
+        DisableControlAction(0, 141, true)
+        DisableControlAction(0, 142, true)
+        DisableControlAction(0, 257, true)
+        DisableControlAction(0, 263, true)
+        DisableControlAction(0, 264, true)
+    end
+
+    DisableControlAction(0, 199, true)
+    DisableControlAction(0, 200, true)
+    DisableControlAction(0, 241, true)
+    DisableControlAction(0, 242, true)
 end
 
 local function loadAnimDict(dict)
@@ -351,6 +459,20 @@ local function headingVectors(heading)
     local right = vector3(forward.y, -forward.x, 0.0)
 
     return forward, right
+end
+
+local function normalizeVector(vec)
+    local length = math.sqrt((vec.x * vec.x) + (vec.y * vec.y) + (vec.z * vec.z))
+
+    if length <= 0.001 then
+        return nil, 0.0
+    end
+
+    return vector3(vec.x / length, vec.y / length, vec.z / length), length
+end
+
+local function dotVector(a, b)
+    return (a.x * b.x) + (a.y * b.y) + (a.z * b.z)
 end
 
 local function setBackCameraTransform()
@@ -667,8 +789,72 @@ local function setSelfieCameraTransform()
 
     local ped = PlayerPedId()
     local selfie = selfieCameraConfig()
-    local camCoords, source, sourceCoords = selfieLensCoords(ped, selfie)
+    local baseCamCoords, source, sourceCoords = selfieLensCoords(ped, selfie)
     local lookAt = selfieLookAtCoords(ped, selfie)
+    local lensOffset = type(selfie.PhoneLensOffset) == 'table' and selfie.PhoneLensOffset or {}
+    local lookAtCfg = type(selfie.LookAt) == 'table' and selfie.LookAt or {}
+    local lookAtOffset = type(lookAtCfg.Offset) == 'table' and lookAtCfg.Offset or {}
+    local orbit = type(selfie.Orbit) == 'table' and selfie.Orbit or {}
+    local anchorMode = tostring(selfie.AnchorMode or 'framed')
+    local minDistance = math.max(tonumber(selfie.MinDistanceFromLookAt) or 1.05, 0.25)
+    local camCoords = baseCamCoords
+    local distance = 0.0
+
+    if anchorMode == 'exact' then
+        local dir = nil
+        dir, distance = normalizeVector(vector3(
+            baseCamCoords.x - lookAt.x,
+            baseCamCoords.y - lookAt.y,
+            baseCamCoords.z - lookAt.z
+        ))
+
+        if not dir then
+            local forward = GetEntityForwardVector(ped)
+            dir = vector3(forward.x, forward.y, 0.15)
+            dir = normalizeVector(dir) or vector3(0.0, 1.0, 0.0)
+            distance = 0.0
+        end
+
+        if distance < minDistance then
+            camCoords = vector3(
+                lookAt.x + (dir.x * minDistance),
+                lookAt.y + (dir.y * minDistance),
+                lookAt.z + (dir.z * minDistance)
+            )
+        end
+    else
+        local forward, right = headingVectors(GetEntityHeading(ped))
+        local distanceTarget = math.max(tonumber(selfie.Distance) or 1.45, minDistance)
+        local sideOffset = tonumber(selfie.SideOffset) or 0.0
+        local heightOffset = tonumber(selfie.HeightOffset) or 0.05
+        local influence = type(selfie.AnchorInfluence) == 'table' and selfie.AnchorInfluence or {}
+        local anchorDelta = vector3(baseCamCoords.x - lookAt.x, baseCamCoords.y - lookAt.y, baseCamCoords.z - lookAt.z)
+        local anchorSide = clamp(dotVector(anchorDelta, right), -0.8, 0.8) * (tonumber(influence.Side) or 0.12)
+        local anchorHeight = clamp(anchorDelta.z, -0.8, 0.8) * (tonumber(influence.Height) or 0.08)
+
+        camCoords = vector3(
+            lookAt.x + (forward.x * distanceTarget) + (right.x * (sideOffset + anchorSide)),
+            lookAt.y + (forward.y * distanceTarget) + (right.y * (sideOffset + anchorSide)),
+            lookAt.z + heightOffset + anchorHeight
+        )
+        distance = distanceTarget
+    end
+
+    if orbit.Enabled == true then
+        local maxYaw = math.max(tonumber(orbit.MaxYaw) or 35.0, 1.0)
+        local maxPitch = math.max(tonumber(orbit.MaxPitch) or 18.0, 1.0)
+        local sideRange = tonumber(orbit.SideRange) or 0.35
+        local heightRange = tonumber(orbit.HeightRange) or 0.22
+        local _, right = headingVectors(GetEntityHeading(ped))
+        local sideOffset = clamp(selfieOrbitYaw / maxYaw, -1.0, 1.0) * sideRange
+        local heightOffset = clamp(selfieOrbitPitch / maxPitch, -1.0, 1.0) * heightRange
+
+        camCoords = vector3(
+            camCoords.x + (right.x * sideOffset),
+            camCoords.y + (right.y * sideOffset),
+            camCoords.z + heightOffset
+        )
+    end
 
     SetEntityVisible(ped, true, false)
     SetCamCoord(cameraCam, camCoords.x, camCoords.y, camCoords.z)
@@ -678,11 +864,19 @@ local function setSelfieCameraTransform()
     local now = GetGameTimer()
     if now - lastSelfieDebugAt > 1000 then
         lastSelfieDebugAt = now
-        cameraLog(('[camera/selfie] using=%s cam=%s lookAt=%s source=%s propVisible=%s pedVisible=%s'):format(
+        cameraLog(('[camera/selfie] mode=%s using=%s cam=%s base=%s lookAt=%s source=%s lensOffset=%s lookOffset=%s distance=%.2f minDistance=%.2f orbit=%.2f,%.2f propVisible=%s pedVisible=%s'):format(
+            anchorMode,
             source,
             vectorText(camCoords),
+            vectorText(baseCamCoords),
             vectorText(lookAt),
             vectorText(sourceCoords),
+            vectorText(lensOffset),
+            vectorText(lookAtOffset),
+            distance,
+            minDistance,
+            selfieOrbitYaw,
+            selfieOrbitPitch,
             tostring(DoesEntityExist(cameraHoldProp) and IsEntityVisible(cameraHoldProp)),
             tostring(IsEntityVisible(ped))
         ))
@@ -734,13 +928,23 @@ local function getCameraPhoneDict(profile)
 end
 
 local function resolveCameraAnim(profileName, animName, flags)
+    local cfg = holdAnimationConfig()
     local profile = holdProfile(profileName or holdProfileName())
+    local flagConfig = type(cfg.Flags) == 'table' and cfg.Flags or {}
+    local defaultFlag = tonumber(flagConfig.Default) or 49
+
+    if cameraFacing == 'front' then
+        defaultFlag = tonumber(flagConfig.Selfie) or defaultFlag
+    elseif IsPedInAnyVehicle(PlayerPedId(), false) then
+        defaultFlag = tonumber(flagConfig.InVehicle) or defaultFlag
+    end
+
     return {
         profile = profile,
         profileName = profileName or holdProfileName(),
         dict = getCameraPhoneDict(profile),
-        anim = tostring(animName or profile.Anim or holdAnimationConfig().IdleAnim or holdAnimationConfig().Anim or 'cellphone_text_read_base'),
-        flag = tonumber(flags or profile.Flag) or 49
+        anim = tostring(animName or profile.Anim or cfg.IdleAnim or cfg.Anim or 'cellphone_text_read_base'),
+        flag = tonumber(flags or profile.Flag or defaultFlag) or defaultFlag
     }
 end
 
@@ -770,9 +974,11 @@ local function PlayCameraAnim(animName, flags, profileName)
 
     local fallbackDict = tostring(cfg.Dict or 'cellphone@')
     local fallbackAnim = tostring(cfg.IdleAnim or cfg.Anim or 'cellphone_text_read_base')
+    local fallbackFlags = type(cfg.Flags) == 'table' and cfg.Flags or {}
+    local fallbackFlag = tonumber(fallbackFlags.Default) or 49
     if fallbackDict ~= resolved.dict and loadAnimDict(fallbackDict) then
-        TaskPlayAnim(ped, fallbackDict, fallbackAnim, 3.0, 3.0, -1, 49, 0.0, false, false, false)
-        cameraAnimLog(('fallback dict=%s anim=%s original_dict=%s'):format(fallbackDict, fallbackAnim, resolved.dict))
+        TaskPlayAnim(ped, fallbackDict, fallbackAnim, 3.0, 3.0, -1, fallbackFlag, 0.0, false, false, false)
+        cameraAnimLog(('fallback dict=%s anim=%s flag=%s original_dict=%s'):format(fallbackDict, fallbackAnim, tostring(fallbackFlag), resolved.dict))
         cameraHoldAnim.profile = 'fallback'
         cameraHoldAnim.dict = fallbackDict
         cameraHoldAnim.anim = fallbackAnim
@@ -823,6 +1029,7 @@ local function CreateCameraPhoneProp()
 
     if DoesEntityExist(cameraHoldProp) then
         SetEntityAsMissionEntity(cameraHoldProp, true, true)
+        SetEntityCollision(cameraHoldProp, false, false)
         local modeCfg = holdModeConfig()
         local offset = type(modeCfg.Offset) == 'table' and modeCfg.Offset or type(cfg.Offset) == 'table' and cfg.Offset or {}
         local rotation = type(modeCfg.Rotation) == 'table' and modeCfg.Rotation or type(cfg.Rotation) == 'table' and cfg.Rotation or {}
@@ -1228,6 +1435,14 @@ function MZPhone.Camera.CreatePhoneCamera()
     local ped = PlayerPedId()
     local coords = GetEntityCoords(ped)
 
+    if useNativeSelfieCamera() then
+        startNativeSelfieCamera()
+        setCameraPlayerFrozen(true, 'native_selfie_start')
+        return true
+    end
+
+    stopNativeSelfieCamera('scripted_camera_start')
+
     cameraCam = CreateCam('DEFAULT_SCRIPTED_CAMERA', true)
     SetCamFov(cameraCam, cameraFov)
 
@@ -1238,12 +1453,14 @@ function MZPhone.Camera.CreatePhoneCamera()
     end
 
     RenderScriptCams(true, false, 0, true, true)
-    FreezeEntityPosition(ped, true)
+    setCameraPlayerFrozen(true, 'camera_start')
 
     return true
 end
 
 function MZPhone.Camera.DestroyPhoneCamera()
+    stopNativeSelfieCamera('destroy_camera')
+
     if cameraCam then
         RenderScriptCams(false, false, 0, true, true)
         DestroyCam(cameraCam, false)
@@ -1252,6 +1469,11 @@ function MZPhone.Camera.DestroyPhoneCamera()
 end
 
 local function updateSelfieCamera()
+    if nativeSelfieActive then
+        HideHudAndRadarThisFrame()
+        return
+    end
+
     if not cameraCam then
         return
     end
@@ -1343,13 +1565,19 @@ local function toggleCameraFacing()
         selfieOrbitPitch = 0.0
         local limits = cameraFovLimits()
         cameraFov = clamp(limits.default, limits.min, limits.max)
+        if useNativeSelfieCamera() then
+            StopCameraHoldAnim('native_selfie_start')
+        end
         MZPhone.Camera.CreatePhoneCamera()
-        CreateCameraPhoneProp()
-        PlayCameraAnim(nil, nil, holdProfileName())
-        ApplyCameraPropVisibility()
+        if not nativeSelfieActive then
+            CreateCameraPhoneProp()
+            PlayCameraAnim(nil, nil, holdProfileName())
+            ApplyCameraPropVisibility()
+        end
         cameraAnimLog('switch back_to_selfie')
     else
         cameraFacing = 'back'
+        stopNativeSelfieCamera('switch_selfie_to_back')
         local limits = cameraFovLimits()
         cameraFov = clamp(limits.default, limits.min, limits.max)
         MZPhone.Camera.CreatePhoneCamera()
@@ -1537,7 +1765,7 @@ function MZPhone.Camera.StopCameraMode(reason, options)
     MZPhone.Camera.DestroyPhoneCamera()
     restoreCameraFov()
     restoreCameraView()
-    FreezeEntityPosition(PlayerPedId(), false)
+    setCameraPlayerFrozen(false, reason or 'camera_stop')
     releasePhoneFocus(reason or 'camera_stop')
 
     if wasActive and reason ~= 'saved' and reason ~= 'resource_stop' then
@@ -1557,17 +1785,7 @@ function MZPhone.Camera.HandleCameraControls()
         while cameraMode do
             updateSelfieCamera()
 
-            DisableControlAction(0, 24, true)
-            DisableControlAction(0, 25, true)
-            DisableControlAction(0, 37, true)
-            DisableControlAction(0, 44, true)
-            DisableControlAction(0, 140, true)
-            DisableControlAction(0, 141, true)
-            DisableControlAction(0, 142, true)
-            DisableControlAction(0, 199, true)
-            DisableControlAction(0, 200, true)
-            DisableControlAction(0, 241, true)
-            DisableControlAction(0, 242, true)
+            applyCameraControlLocks()
 
             if not isCapturing then
                 if IsDisabledControlJustPressed(0, 24) or IsControlJustPressed(0, 191) then
@@ -1708,4 +1926,7 @@ AddEventHandler('onResourceStop', function(resourceName)
     elseif holdAnimationConfig().CleanupOnStop ~= false then
         CleanupCameraAnimation('resource_stop')
     end
+
+    setCameraPlayerFrozen(false, 'resource_stop')
+    RestoreLocalPlayerAfterCamera('resource_stop')
 end)
