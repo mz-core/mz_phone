@@ -17,6 +17,8 @@ local previousVehicleCamViewMode = nil
 local forcedFirstPerson = false
 local playerHiddenForCapture = false
 local playerHiddenForCamera = false
+local playerLocalInvisibleForCapture = false
+local playerLocalInvisibleForCamera = false
 local cameraFacing = 'back'
 local cameraHoldProp = nil
 local cameraHoldHidden = false
@@ -32,6 +34,8 @@ local cameraRotX = 0.0
 local cameraRotZ = 0.0
 local selfieOrbitYaw = 0.0
 local selfieOrbitPitch = 0.0
+local lastBackDebugAt = 0
+local lastSelfieDebugAt = 0
 
 local function cameraConfig()
     return Config.Phone and Config.Phone.Camera or {}
@@ -320,6 +324,35 @@ local function rotationToDirection(rot)
     )
 end
 
+local function tableNumber(tbl, key, fallback)
+    if type(tbl) ~= 'table' then
+        return fallback
+    end
+
+    local value = tonumber(tbl[key])
+    if value == nil then
+        return fallback
+    end
+
+    return value
+end
+
+local function vectorText(vec)
+    if not vec then
+        return 'nil'
+    end
+
+    return ('%.3f,%.3f,%.3f'):format(tonumber(vec.x) or 0.0, tonumber(vec.y) or 0.0, tonumber(vec.z) or 0.0)
+end
+
+local function headingVectors(heading)
+    local rad = math.rad(heading)
+    local forward = vector3(-math.sin(rad), math.cos(rad), 0.0)
+    local right = vector3(forward.y, -forward.x, 0.0)
+
+    return forward, right
+end
+
 local function setBackCameraTransform()
     if not cameraCam then
         return
@@ -327,29 +360,35 @@ local function setBackCameraTransform()
 
     local ped = PlayerPedId()
     local coords = GetEntityCoords(ped)
-    local forward = GetEntityForwardVector(ped)
-    local right = vector3(forward.y, -forward.x, 0.0)
     local backCfg = backCameraConfig()
     local offset = type(backCfg.Offset) == 'table' and backCfg.Offset or {}
+    local lookOffset = type(backCfg.LookOffset) == 'table' and backCfg.LookOffset or {}
     local rotOffset = type(backCfg.RotationOffset) == 'table' and backCfg.RotationOffset or {}
-    local offsetX = tonumber(offset.x) or 0.0
-    local offsetY = tonumber(offset.y) or 0.42
-    local offsetZ = tonumber(offset.z) or 0.72
-
-    SetCamCoord(
-        cameraCam,
+    local pitch = cameraRotX + (tonumber(rotOffset.pitch) or 0.0)
+    local yaw = cameraRotZ + (tonumber(rotOffset.yaw) or 0.0)
+    local forward, right = headingVectors(yaw)
+    local offsetX = tableNumber(offset, 'x', 0.0)
+    local offsetY = tableNumber(offset, 'y', 0.55)
+    local offsetZ = tableNumber(offset, 'z', 0.74)
+    local lookX = tableNumber(lookOffset, 'x', 0.0)
+    local lookDistance = math.max(tableNumber(lookOffset, 'y', 5.0), 0.1)
+    local lookZ = tableNumber(lookOffset, 'z', offsetZ)
+    local camCoords = vector3(
         coords.x + (right.x * offsetX) + (forward.x * offsetY),
         coords.y + (right.y * offsetX) + (forward.y * offsetY),
         coords.z + offsetZ
     )
-    SetCamRot(
-        cameraCam,
-        cameraRotX + (tonumber(rotOffset.pitch) or 0.0),
-        tonumber(rotOffset.roll) or 0.0,
-        cameraRotZ + (tonumber(rotOffset.yaw) or 0.0),
-        2
+    local lookCoords = vector3(
+        coords.x + (right.x * lookX) + (forward.x * lookDistance),
+        coords.y + (right.y * lookX) + (forward.y * lookDistance),
+        coords.z + lookZ + (math.tan(math.rad(pitch)) * lookDistance)
     )
+
+    SetCamCoord(cameraCam, camCoords.x, camCoords.y, camCoords.z)
+    PointCamAtCoord(cameraCam, lookCoords.x, lookCoords.y, lookCoords.z)
     SetCamFov(cameraCam, cameraFov)
+
+    return camCoords, lookCoords
 end
 
 local function zoomLabel()
@@ -490,23 +529,45 @@ end
 
 local function hidePlayerForCapture()
     local fp = firstPersonConfig()
-    if fp.HidePlayerBeforeCapture ~= true or cameraFacing == 'front' then
+    local backCfg = backCameraConfig()
+
+    if cameraFacing == 'front' then
         return 0
     end
 
-    SetEntityVisible(PlayerPedId(), false, false)
-    playerHiddenForCapture = true
+    if backCfg.HidePlayerOnlyForCapture == true then
+        if backCfg.UseLocalInvisible ~= false then
+            playerLocalInvisibleForCapture = true
+            cameraLog('capture hide player local_only')
+            return tonumber(backCfg.HidePlayerDelayMs) or tonumber(fp.HidePlayerDelayMs) or 120
+        end
 
-    return tonumber(fp.HidePlayerDelayMs) or 120
+        cameraLog('capture hide skipped use_local_invisible=false')
+        return 0
+    end
+
+    if fp.HidePlayerBeforeCapture ~= true then
+        return 0
+    end
+
+    if backCfg.UseLocalInvisible ~= false then
+        playerLocalInvisibleForCapture = true
+        cameraLog('capture hide player local_only legacy')
+        return tonumber(fp.HidePlayerDelayMs) or 120
+    end
+
+    cameraLog('capture hide skipped legacy use_local_invisible=false')
+    return 0
 end
 
 local function restorePlayerVisibility()
-    if not playerHiddenForCapture then
-        return
+    if playerHiddenForCapture or playerHiddenForCamera then
+        SetEntityVisible(PlayerPedId(), true, false)
     end
 
-    SetEntityVisible(PlayerPedId(), not playerHiddenForCamera, false)
     playerHiddenForCapture = false
+    playerHiddenForCamera = false
+    playerLocalInvisibleForCapture = false
 end
 
 local function HideLocalPlayerForCamera(reason)
@@ -515,19 +576,117 @@ local function HideLocalPlayerForCamera(reason)
         return
     end
 
-    SetEntityVisible(PlayerPedId(), false, false)
-    playerHiddenForCamera = true
-    cameraLog(('hide player reason=%s'):format(tostring(reason or 'camera_back')))
-end
-
-local function RestoreLocalPlayerAfterCamera(reason)
-    if not playerHiddenForCamera then
+    if backCfg.UseLocalInvisible ~= false then
+        playerLocalInvisibleForCamera = true
+        cameraLog(('hide player local_only reason=%s'):format(tostring(reason or 'camera_back')))
         return
     end
 
-    SetEntityVisible(PlayerPedId(), true, false)
+    cameraLog(('hide player skipped use_local_invisible=false reason=%s'):format(tostring(reason or 'camera_back')))
+end
+
+local function RestoreLocalPlayerAfterCamera(reason)
+    local hadHidden = playerHiddenForCamera or playerLocalInvisibleForCamera or playerLocalInvisibleForCapture
+
+    if playerHiddenForCamera then
+        SetEntityVisible(PlayerPedId(), true, false)
+    end
+
     playerHiddenForCamera = false
-    cameraLog(('restore player reason=%s'):format(tostring(reason or 'camera_restore')))
+    playerLocalInvisibleForCamera = false
+    playerLocalInvisibleForCapture = false
+
+    if hadHidden then
+        cameraLog(('restore player reason=%s'):format(tostring(reason or 'camera_restore')))
+    end
+end
+
+local function applyLocalPlayerVisibility()
+    if cameraFacing ~= 'back' then
+        return
+    end
+
+    if playerLocalInvisibleForCamera or playerLocalInvisibleForCapture then
+        SetEntityLocallyInvisible(PlayerPedId())
+    end
+end
+
+local function selfieLookAtCoords(ped, selfie)
+    local lookAt = type(selfie.LookAt) == 'table' and selfie.LookAt or {}
+    local offset = type(lookAt.Offset) == 'table' and lookAt.Offset or {}
+    local bone = tonumber(lookAt.Bone) or 31086
+    local ok, coords = pcall(GetPedBoneCoords, ped, bone, tableNumber(offset, 'x', 0.0), tableNumber(offset, 'y', 0.0), tableNumber(offset, 'z', -0.10))
+
+    if ok and coords then
+        return coords
+    end
+
+    local pedCoords = GetEntityCoords(ped)
+    return vector3(pedCoords.x, pedCoords.y, pedCoords.z + (tonumber(selfie.LookAtHeight) or 0.62))
+end
+
+local function selfieLensCoords(ped, selfie)
+    if selfie.UsePhonePropAsLens ~= false and DoesEntityExist(cameraHoldProp) then
+        local lens = type(selfie.PhoneLensOffset) == 'table' and selfie.PhoneLensOffset or {}
+        local coords = GetOffsetFromEntityInWorldCoords(
+            cameraHoldProp,
+            tableNumber(lens, 'x', 0.0),
+            tableNumber(lens, 'y', 0.04),
+            tableNumber(lens, 'z', 0.03)
+        )
+
+        return coords, 'prop', GetEntityCoords(cameraHoldProp)
+    end
+
+    local hand = type(selfie.FallbackHandOffset) == 'table' and selfie.FallbackHandOffset or {}
+    local bone = tonumber(holdAnimationConfig().Bone) or 28422
+    local ok, coords = pcall(GetPedBoneCoords, ped, bone, tableNumber(hand, 'x', 0.10), tableNumber(hand, 'y', 0.18), tableNumber(hand, 'z', 0.04))
+
+    if ok and coords then
+        return coords, 'hand', coords
+    end
+
+    local pedCoords = GetEntityCoords(ped)
+    local heading = GetEntityHeading(ped)
+    local forward, right = headingVectors(heading)
+    local distance = tonumber(selfie.DistanceFallback) or 0.85
+    local height = tonumber(selfie.HeightFallback) or 0.68
+    local fallback = vector3(
+        pedCoords.x + (forward.x * distance) + (right.x * tableNumber(hand, 'x', 0.0)),
+        pedCoords.y + (forward.y * distance) + (right.y * tableNumber(hand, 'x', 0.0)),
+        pedCoords.z + height
+    )
+
+    return fallback, 'fallback', nil
+end
+
+local function setSelfieCameraTransform()
+    if not cameraCam then
+        return
+    end
+
+    local ped = PlayerPedId()
+    local selfie = selfieCameraConfig()
+    local camCoords, source, sourceCoords = selfieLensCoords(ped, selfie)
+    local lookAt = selfieLookAtCoords(ped, selfie)
+
+    SetEntityVisible(ped, true, false)
+    SetCamCoord(cameraCam, camCoords.x, camCoords.y, camCoords.z)
+    SetCamFov(cameraCam, cameraFov)
+    PointCamAtCoord(cameraCam, lookAt.x, lookAt.y, lookAt.z)
+
+    local now = GetGameTimer()
+    if now - lastSelfieDebugAt > 1000 then
+        lastSelfieDebugAt = now
+        cameraLog(('[camera/selfie] using=%s cam=%s lookAt=%s source=%s propVisible=%s pedVisible=%s'):format(
+            source,
+            vectorText(camCoords),
+            vectorText(lookAt),
+            vectorText(sourceCoords),
+            tostring(DoesEntityExist(cameraHoldProp) and IsEntityVisible(cameraHoldProp)),
+            tostring(IsEntityVisible(ped))
+        ))
+    end
 end
 
 local ApplyCameraPropVisibility
@@ -816,12 +975,13 @@ end
 local function HideCameraPropForCapture()
     local cfg = holdAnimationConfig()
     local backCfg = backCameraConfig()
+    local selfie = selfieCameraConfig()
     local hideInBack = cfg.HidePropBeforeCapture == true or backCfg.HidePropBeforeCapture == true
     if cameraFacing == 'back' and not hideInBack then
         return
     end
 
-    if cameraFacing == 'front' and cfg.HidePropBeforeCapture ~= true then
+    if cameraFacing == 'front' and selfie.HidePropInSelfieCapture ~= true then
         return
     end
 
@@ -1072,21 +1232,7 @@ function MZPhone.Camera.CreatePhoneCamera()
     SetCamFov(cameraCam, cameraFov)
 
     if cameraFacing == 'front' then
-        local selfie = selfieCameraConfig()
-        local heading = GetEntityHeading(ped) + selfieOrbitYaw
-        local rad = math.rad(heading)
-        local distance = tonumber(selfie.Distance) or 1.15
-        local sideOffset = tonumber(selfie.SideOffset) or 0.0
-        local height = tonumber(selfie.Height) or 0.72
-        local lookAtHeight = tonumber(selfie.LookAtHeight) or 0.62
-        local forward = vector3(-math.sin(rad), math.cos(rad), 0.0)
-        local right = vector3(forward.y, -forward.x, 0.0)
-        local camX = coords.x + (forward.x * distance) + (right.x * sideOffset)
-        local camY = coords.y + (forward.y * distance) + (right.y * sideOffset)
-        local camZ = coords.z + height + (selfieOrbitPitch * 0.01)
-
-        SetCamCoord(cameraCam, camX, camY, camZ)
-        PointCamAtCoord(cameraCam, coords.x, coords.y, coords.z + lookAtHeight)
+        setSelfieCameraTransform()
     else
         setBackCameraTransform()
     end
@@ -1110,9 +1256,6 @@ local function updateSelfieCamera()
         return
     end
 
-    local ped = PlayerPedId()
-    local coords = GetEntityCoords(ped)
-
     if cameraFacing ~= 'front' then
         local lookX = GetControlNormal(0, 1)
         local lookY = GetControlNormal(0, 2)
@@ -1128,7 +1271,20 @@ local function updateSelfieCamera()
         cameraRotZ = cameraRotZ - (lookX * 7.5)
         cameraRotX = clamp(cameraRotX - (lookY * 7.5), -75.0, 75.0)
 
-        setBackCameraTransform()
+        local camCoords, lookCoords = setBackCameraTransform()
+        applyLocalPlayerVisibility()
+
+        local now = GetGameTimer()
+        if now - lastBackDebugAt > 1000 then
+            lastBackDebugAt = now
+            cameraLog(('[camera/back] hideMode=%s cam=%s lookAt=%s localActive=%s captureOnly=%s'):format(
+                playerLocalInvisibleForCamera and 'local_active' or playerLocalInvisibleForCapture and 'local_capture' or 'none',
+                vectorText(camCoords),
+                vectorText(lookCoords),
+                tostring(playerLocalInvisibleForCamera),
+                tostring(playerLocalInvisibleForCapture)
+            ))
+        end
         return
     end
 
@@ -1152,21 +1308,8 @@ local function updateSelfieCamera()
         selfieOrbitPitch = clamp(selfieOrbitPitch + (lookY * sensitivity), -(tonumber(orbit.MaxPitch) or 18.0), tonumber(orbit.MaxPitch) or 18.0)
     end
 
-    local heading = GetEntityHeading(ped) + selfieOrbitYaw
-    local rad = math.rad(heading)
-    local distance = tonumber(selfie.Distance) or 1.15
-    local sideOffset = tonumber(selfie.SideOffset) or 0.0
-    local height = tonumber(selfie.Height) or 0.72
-    local lookAtHeight = tonumber(selfie.LookAtHeight) or 0.62
-    local forward = vector3(-math.sin(rad), math.cos(rad), 0.0)
-    local right = vector3(forward.y, -forward.x, 0.0)
-    local camX = coords.x + (forward.x * distance) + (right.x * sideOffset)
-    local camY = coords.y + (forward.y * distance) + (right.y * sideOffset)
-    local camZ = coords.z + height + (selfieOrbitPitch * 0.01)
-
-    SetCamCoord(cameraCam, camX, camY, camZ)
-    SetCamFov(cameraCam, cameraFov)
-    PointCamAtCoord(cameraCam, coords.x, coords.y, coords.z + lookAtHeight)
+    RestoreLocalPlayerAfterCamera('camera_selfie_frame')
+    setSelfieCameraTransform()
 end
 
 local function applyCameraFov()
@@ -1201,7 +1344,6 @@ local function toggleCameraFacing()
         local limits = cameraFovLimits()
         cameraFov = clamp(limits.default, limits.min, limits.max)
         MZPhone.Camera.CreatePhoneCamera()
-        DeleteCameraPhoneProp()
         CreateCameraPhoneProp()
         PlayCameraAnim(nil, nil, holdProfileName())
         ApplyCameraPropVisibility()
@@ -1212,7 +1354,6 @@ local function toggleCameraFacing()
         cameraFov = clamp(limits.default, limits.min, limits.max)
         MZPhone.Camera.CreatePhoneCamera()
         HideLocalPlayerForCamera('camera_back')
-        DeleteCameraPhoneProp()
         CreateCameraPhoneProp()
         PlayCameraAnim(nil, nil, holdProfileName())
         ApplyCameraPropVisibility()

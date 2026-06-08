@@ -44,6 +44,34 @@ Comandos de teste:
 
 O comando `/mzphone_debug` exige `Config.Debug.AllowCommand = true` e permissao `mz_phone.debug` via `mz_core`, ou `Config.Debug.Enabled = true`.
 
+## Camera e selfie
+
+A camera do `mz_phone` e scriptada. Ela nao usa `CreateMobilePhone`/`CellCamActivate`.
+
+No modo back, o player nao fica invisivel globalmente por padrao. A camera fica na frente do ped e olha para frente usando:
+
+```lua
+Config.Phone.Camera.BackCamera.Offset = { x = 0.0, y = 0.55, z = 0.74 }
+Config.Phone.Camera.BackCamera.LookOffset = { x = 0.0, y = 5.0, z = 0.74 }
+Config.Phone.Camera.BackCamera.HidePlayerWhileActive = false
+Config.Phone.Camera.BackCamera.HidePlayerOnlyForCapture = true
+Config.Phone.Camera.BackCamera.UseLocalInvisible = true
+```
+
+Na selfie, a lente tenta usar o prop do celular como origem. Se o prop ainda nao existir, usa a mao do ped como fallback:
+
+```lua
+Config.Phone.Camera.SelfieCamera.UsePhonePropAsLens = true
+Config.Phone.Camera.SelfieCamera.PhoneLensOffset = { x = 0.0, y = 0.04, z = 0.03 }
+Config.Phone.Camera.SelfieCamera.FallbackHandOffset = { x = 0.10, y = 0.18, z = 0.04 }
+Config.Phone.Camera.SelfieCamera.LookAt = {
+    Bone = 31086,
+    Offset = { x = 0.0, y = 0.0, z = -0.10 }
+}
+```
+
+Para calibrar, ajuste `PhoneLensOffset` quando o prop existir, e `FallbackHandOffset` quando a camera estiver usando a mao. Ative `Config.Debug.Enabled = true` para ver logs de `camera/selfie` e `camera/back`.
+
 ## Servico externo mz_phone_server
 
 O `mz_phone_server` fica fora do FXServer. Ele nao entra no `server.cfg`.

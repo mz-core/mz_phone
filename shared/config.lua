@@ -66,19 +66,44 @@ Config.Phone = {
             Enabled = true,
             Offset = {
                 x = 0.0,
-                y = 0.42,
+                y = 0.55,
                 z = 0.72
+            },
+            LookOffset = {
+                x = 0.0,
+                y = 5.0,
+                z = 0.74
             },
             RotationOffset = {
                 pitch = 0.0,
                 roll = 0.0,
                 yaw = 0.0
             },
-            HidePlayerWhileActive = true,
+            HidePlayerWhileActive = false,
+            HidePlayerOnlyForCapture = true,
+            UseLocalInvisible = true,
             HidePropBeforeCapture = true
         },
         SelfieCamera = {
             Enabled = true,
+            UsePhonePropAsLens = true,
+            PhoneLensOffset = {
+                x = 0.0,
+                y = 0.04,
+                z = 0.03
+            },
+            FallbackHandOffset = {
+                x = 0.10,
+                y = 0.18,
+                z = 0.04
+            },
+            LookAt = {
+                Bone = 31086,
+                Offset = { x = 0.0, y = 0.0, z = -0.10 }
+            },
+            DistanceFallback = 0.85,
+            HeightFallback = 0.68,
+            HidePropInSelfieCapture = false,
             Distance = 1.15,
             Height = 0.72,
             SideOffset = 0.0,
