@@ -274,7 +274,12 @@ Config.Phone = {
     Audio = {
         Enabled = true,
         DefaultRingtone = 'ringtone',
-        RingtoneVolume = 0.45
+        RingtoneVolume = 0.45,
+        LocationClick = {
+            Enabled = true,
+            Sound = 'notification',
+            Volume = 0.35
+        }
     }
 }
 

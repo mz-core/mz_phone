@@ -5,6 +5,23 @@ local Repository = MZPhoneServer.Repository
 local Security = MZPhoneServer.Security
 local Framework = MZPhoneServer.Framework
 
+local function phoneAudioSource(soundName)
+    local value = tostring(soundName or ''):gsub('^%s+', ''):gsub('%s+$', '')
+    if value == '' then
+        value = 'notification'
+    end
+
+    if value:find('^https?://') or value:find('^nui://') or value:find('^sounds/') or value:find('/') then
+        return value
+    end
+
+    if value:find('%.') then
+        return ('sounds/%s'):format(value)
+    end
+
+    return ('sounds/%s.mp3'):format(value)
+end
+
 local function fullName(identity)
     local name = ((identity.firstname or '') .. ' ' .. (identity.lastname or '')):gsub('^%s+', ''):gsub('%s+$', '')
     if name == '' then
@@ -305,7 +322,13 @@ local function buildDefaults(identity, phoneNumber)
         audio = {
             enabled = Config.Phone.Audio == nil or Config.Phone.Audio.Enabled ~= false,
             defaultRingtone = Config.Phone.Audio and Config.Phone.Audio.DefaultRingtone or 'ringtone',
-            ringtoneVolume = Config.Phone.Audio and Config.Phone.Audio.RingtoneVolume or 0.45
+            ringtoneVolume = Config.Phone.Audio and Config.Phone.Audio.RingtoneVolume or 0.45,
+            locationClick = {
+                enabled = not (Config.Phone.Audio and Config.Phone.Audio.LocationClick and Config.Phone.Audio.LocationClick.Enabled == false),
+                sound = Config.Phone.Audio and Config.Phone.Audio.LocationClick and Config.Phone.Audio.LocationClick.Sound or 'notification',
+                source = phoneAudioSource(Config.Phone.Audio and Config.Phone.Audio.LocationClick and Config.Phone.Audio.LocationClick.Sound or 'notification'),
+                volume = Config.Phone.Audio and Config.Phone.Audio.LocationClick and Config.Phone.Audio.LocationClick.Volume or 0.35
+            }
         },
         profilePhoto = settings.profile_photo or '',
         playerProfile = {

@@ -191,6 +191,39 @@ function parseMessageMetadata(msg) {
   }
 }
 
+function resolveMessageSoundSource(value, fallback = "sounds/notification.mp3") {
+  const source = String(value || "").trim();
+  if (!source) return fallback;
+
+  if (
+    source.startsWith("http://") ||
+    source.startsWith("https://") ||
+    source.startsWith("nui://") ||
+    source.startsWith("sounds/") ||
+    source.includes("/")
+  ) {
+    return source;
+  }
+
+  return source.includes(".") ? `sounds/${source}` : `sounds/${source}.mp3`;
+}
+
+function playLocationClickSound() {
+  try {
+    const audio = window.PhoneApp?.getState?.().audio || {};
+    const locationClick = audio.locationClick || {};
+    if (audio.enabled === false || locationClick.enabled === false) return;
+
+    const source = resolveMessageSoundSource(
+      locationClick.source || locationClick.url || locationClick.sound,
+    );
+    const volume =
+      typeof locationClick.volume === "number" ? locationClick.volume : 0.35;
+
+    window.PhoneAudio?.play?.("location-click", source, { volume });
+  } catch (_) {}
+}
+
 function getLastMessagePreview(state, conversationId, conversation = null) {
   const messages = getConversationMessages(state, conversationId);
   const last = messages[messages.length - 1] || {
@@ -778,6 +811,8 @@ window.MessagesApp = {
     const nx = Number(x);
     const ny = Number(y);
     if (!Number.isFinite(nx) || !Number.isFinite(ny)) return;
+
+    playLocationClickSound();
 
     const result = window.PhoneAPI?.setWaypoint
       ? await window.PhoneAPI.setWaypoint({ x: nx, y: ny })

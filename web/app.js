@@ -82,6 +82,17 @@ const DEFAULT_PHONE_STATE = {
 
   theme: "dark",
   wallpaper: "default",
+  audio: {
+    enabled: true,
+    defaultRingtone: "ringtone",
+    ringtoneVolume: 0.45,
+    locationClick: {
+      enabled: true,
+      sound: "notification",
+      source: "sounds/notification.mp3",
+      volume: 0.35,
+    },
+  },
 
   status: {
     time: "",
@@ -1322,10 +1333,17 @@ function bootPhone() {
         lastMessage &&
         lastMessage.sender !== "me"
       ) {
+        const messageAudio = phoneState.audio || {};
+        const messageNotification = messageAudio.messageNotification || {};
         window.PhoneAudio?.play(
           "message-notify",
-          "https://fivem.mazinho.org/mz_phone_server/audio/ui/notification.mp3",
-          { volume: 1 },
+          messageNotification.source || "sounds/notification.mp3",
+          {
+            volume:
+              typeof messageNotification.volume === "number"
+                ? messageNotification.volume
+                : 1,
+          },
         );
 
         phoneState.lastMessageSoundKey = currentLastKey;
