@@ -6,6 +6,7 @@ const statusClock = document.getElementById("statusClock");
 const phoneShell = document.getElementById("phoneShell");
 const callOverlay = document.getElementById("callOverlay");
 const cameraHud = document.getElementById("cameraHud");
+const cameraTransitionMask = document.getElementById("cameraTransitionMask");
 
 const DEFAULT_PHONE_STATE = {
   isOpen: false,
@@ -684,6 +685,8 @@ function handlePhoneOpen() {
 function handlePhoneClose() {
   phoneState.isOpen = false;
   window.PhoneAudio?.stopAll();
+  setCameraTransitionMask(false, { instant: true });
+  renderCameraHud(false);
   const currentAppId = phoneState.currentApp;
   if (currentAppId) {
     const app = window.AppRegistry.getApp(currentAppId);
@@ -715,10 +718,10 @@ function renderCameraHud(visible, data = {}) {
   const status = data.status || "ready";
   const isError = status === "error";
   const isCapturing = status === "capturing";
-  const showZoom = data.zoom?.Enabled === true;
+  const showZoom = data.zoomEnabled !== false && data.zoom?.Enabled === true;
   const showSwitch = data.switchCamera?.Enabled === true;
   const facingLabel = data.facing === "front" ? "SELFIE" : "POV";
-  const zoomLabel = data.zoomLabel || "";
+  const zoomLabel = showZoom ? data.zoomLabel || "" : "";
   const errorLabel =
     typeof window.cameraErrorMessage === "function"
       ? window.cameraErrorMessage(data.error)
@@ -757,6 +760,32 @@ function renderCameraHud(visible, data = {}) {
       <span>ESC/Backspace: cancelar</span>
     </div>
   `;
+}
+
+function setCameraTransitionMask(active, options = {}) {
+  if (!cameraTransitionMask) return;
+
+  const instant = options.instant === true;
+  const fadeMs = Number(options.fadeMs);
+
+  cameraTransitionMask.classList.toggle("is-instant", instant);
+
+  if (!instant && Number.isFinite(fadeMs) && fadeMs >= 0) {
+    cameraTransitionMask.style.setProperty("--camera-mask-fade", `${fadeMs}ms`);
+  } else if (instant) {
+    cameraTransitionMask.style.setProperty("--camera-mask-fade", "0ms");
+  } else {
+    cameraTransitionMask.style.removeProperty("--camera-mask-fade");
+  }
+
+  cameraTransitionMask.classList.toggle("is-active", active === true);
+
+  if (instant) {
+    requestAnimationFrame(() => {
+      cameraTransitionMask.classList.remove("is-instant");
+      cameraTransitionMask.style.removeProperty("--camera-mask-fade");
+    });
+  }
 }
 
 function handleCameraStatus(data = {}) {
@@ -814,6 +843,13 @@ function bootPhone() {
 
     if (data.action === "cameraHud") {
       renderCameraHud(data.visible === true, data.data || {});
+    }
+
+    if (data.action === "cameraTransitionMask") {
+      setCameraTransitionMask(data.active === true, {
+        instant: data.instant === true,
+        fadeMs: data.fadeMs,
+      });
     }
 
     if (data.action === "cameraStatus") {

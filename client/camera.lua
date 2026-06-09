@@ -5,6 +5,7 @@ local pendingRequests = {}
 local lastCaptureAt = 0
 local cameraMode = false
 local isCapturing = false
+local isSwitchingCamera = false
 local previousPhoneOpen = false
 local restoreApp = 'camera'
 local cameraResultMode = false
@@ -58,6 +59,11 @@ local function switchCameraConfig()
     return type(cfg.SwitchCamera) == 'table' and cfg.SwitchCamera or {}
 end
 
+local function transitionConfig()
+    local cfg = cameraConfig()
+    return type(cfg.Transition) == 'table' and cfg.Transition or {}
+end
+
 local function backCameraConfig()
     local cfg = cameraConfig()
     return type(cfg.BackCamera) == 'table' and cfg.BackCamera or {}
@@ -73,6 +79,15 @@ local function useNativeSelfieCamera()
     local selfie = selfieCameraConfig()
     local hold = type(cfg.HoldAnimation) == 'table' and cfg.HoldAnimation or {}
     return cameraFacing == 'front' and hold.UseNativeSelfie ~= false and tostring(selfie.AnchorMode or '') == 'native_reference'
+end
+
+local function isCameraZoomEnabled()
+    local zoom = zoomConfig()
+    if zoom.Enabled ~= true then
+        return false
+    end
+
+    return not useNativeSelfieCamera()
 end
 
 local function holdAnimationConfig()
@@ -301,20 +316,26 @@ local function stopNativeSelfieCamera(reason)
         return
     end
 
-    DestroyMobilePhone()
     CellFrontCamActivateCompat(false)
     CellCamActivate(false, false)
+    DestroyMobilePhone()
     nativeSelfieActive = false
     cameraLog(('native selfie stop reason=%s'):format(tostring(reason or 'camera_stop')))
 end
 
-local function startNativeSelfieCamera()
+local function startNativeSelfieCamera(beforeFrontActivate, afterFrontActivate)
     stopNativeSelfieCamera('restart_native_selfie')
     ClearPedSecondaryTask(PlayerPedId())
     ClearPedTasks(PlayerPedId())
     CreateMobilePhone(1)
     CellCamActivate(true, true)
+    if type(beforeFrontActivate) == 'function' then
+        beforeFrontActivate()
+    end
     CellFrontCamActivateCompat(true)
+    if type(afterFrontActivate) == 'function' then
+        afterFrontActivate()
+    end
     nativeSelfieActive = true
     cameraLog('native selfie start')
 end
@@ -516,6 +537,10 @@ local function setBackCameraTransform()
 end
 
 local function zoomLabel()
+    if not isCameraZoomEnabled() then
+        return ''
+    end
+
     local zoom = zoomConfig()
     local selfie = selfieCameraConfig()
     local maxFov = cameraFacing == 'front' and (tonumber(selfie.MaxFov) or 75.0) or (tonumber(zoom.MaxFov) or 70.0)
@@ -552,6 +577,7 @@ local function cameraHudPayload(status, extra)
         mode = tostring(cameraConfig().Mode or 'gameplay'),
         facing = cameraFacing,
         zoom = zoomConfig(),
+        zoomEnabled = isCameraZoomEnabled(),
         zoomLabel = zoomLabel(),
         switchCamera = {
             Enabled = switchCfg.Enabled == true and switchCfg.AllowSelfie ~= false,
@@ -573,6 +599,15 @@ local function sendCameraHud(visible, data)
         action = 'cameraHud',
         visible = visible == true,
         data = data or {}
+    })
+end
+
+local function setCameraTransitionMask(active, instant, fadeMs)
+    SendNUIMessage({
+        action = 'cameraTransitionMask',
+        active = active == true,
+        instant = instant == true,
+        fadeMs = tonumber(fadeMs)
     })
 end
 
@@ -1483,6 +1518,10 @@ function MZPhone.Camera.DestroyPhoneCamera()
 end
 
 local function updateSelfieCamera()
+    if isSwitchingCamera then
+        return
+    end
+
     if nativeSelfieActive then
         HideHudAndRadarThisFrame()
         return
@@ -1566,48 +1605,191 @@ local function restoreCameraFov()
     cameraFov = nil
 end
 
+local function runCameraSwitchFade(switchFn)
+    switchFn = type(switchFn) == 'function' and switchFn or function() end
+
+    local transition = transitionConfig()
+    local mode = tostring(transition.Mode or 'post_switch_mask')
+    if transition.Enabled == false or mode == 'off' then
+        switchFn()
+        return
+    end
+
+    local useMask = transition.UseMask ~= false
+    local useScreenFade = transition.UseScreenFade == true
+    local maskInstantOn = transition.MaskInstantOn ~= false
+    local maskTiming = tostring(transition.MaskTiming or 'before_front_activate')
+    local maskFadeInMs = math.max(tonumber(transition.MaskFadeInMs) or 120, 0)
+    local preSwitchHoldMs = math.max(tonumber(transition.PreSwitchHoldMs) or 80, 0)
+    local fadeOutMs = math.max(tonumber(transition.FadeOutMs) or 80, 0)
+    local fadeInMs = math.max(tonumber(transition.FadeInMs) or 0, 0)
+    local postSwitchMaskDelayFrames = math.max(math.floor(tonumber(transition.PostSwitchMaskDelayFrames) or 0), 0)
+    local postSwitchHoldMs = math.max(tonumber(transition.PostSwitchHoldMs) or 220, 0)
+    local postSwitchSettleFrames = math.max(math.floor(tonumber(transition.PostSwitchSettleFrames) or 10), 0)
+    local maskFadeOutMs = math.max(tonumber(transition.MaskFadeOutMs) or 140, 0)
+    local maskActive = false
+
+    local function activateMask(point, force)
+        if not useMask or maskActive then
+            return
+        end
+
+        if force ~= true and point ~= maskTiming then
+            return
+        end
+
+        setCameraTransitionMask(true, maskInstantOn, maskInstantOn and 0 or maskFadeInMs)
+        maskActive = true
+
+        if not maskInstantOn and maskFadeInMs > 0 then
+            Wait(maskFadeInMs)
+        end
+    end
+
+    if mode == 'pre_mask' then
+        activateMask('before_full_switch', true)
+    end
+
+    if preSwitchHoldMs > 0 then
+        Wait(preSwitchHoldMs)
+    end
+
+    if useScreenFade then
+        DoScreenFadeOut(fadeOutMs)
+
+        local timeout = GetGameTimer() + math.max(fadeOutMs + 250, 250)
+        while not IsScreenFadedOut() and GetGameTimer() < timeout do
+            Wait(0)
+        end
+    end
+
+    switchFn(activateMask, maskTiming)
+
+    if mode == 'post_switch_mask' and not maskActive then
+        activateMask('after_full_switch', true)
+    end
+
+    for _ = 1, postSwitchMaskDelayFrames do
+        Wait(0)
+    end
+
+    if postSwitchHoldMs > 0 then
+        Wait(postSwitchHoldMs)
+    end
+
+    for _ = 1, postSwitchSettleFrames do
+        Wait(0)
+    end
+
+    if useScreenFade then
+        DoScreenFadeIn(fadeInMs)
+
+        if fadeInMs > 0 then
+            local timeout = GetGameTimer() + math.max(fadeInMs + 250, 250)
+            while not IsScreenFadedIn() and GetGameTimer() < timeout do
+                Wait(0)
+            end
+        end
+    end
+
+    if maskActive then
+        setCameraTransitionMask(false, false, maskFadeOutMs)
+        if maskFadeOutMs > 0 then
+            Wait(maskFadeOutMs)
+        end
+    end
+end
+
+local function restoreCameraSwitchFade()
+    setCameraTransitionMask(false, true, 0)
+
+    if IsScreenFadedOut() then
+        DoScreenFadeIn(0)
+    end
+end
+
 local function toggleCameraFacing()
+    if isSwitchingCamera then
+        return
+    end
+
     local switchCfg = switchCameraConfig()
     if switchCfg.Enabled ~= true or switchCfg.AllowSelfie == false then
         return
     end
 
-    if cameraFacing == 'back' then
-        cameraFacing = 'front'
-        RestoreLocalPlayerAfterCamera('camera_selfie')
-        selfieOrbitYaw = 0.0
-        selfieOrbitPitch = 0.0
-        local limits = cameraFovLimits()
-        cameraFov = clamp(limits.default, limits.min, limits.max)
-        if useNativeSelfieCamera() then
+    isSwitchingCamera = true
+    sendCameraHud(false)
+
+    runCameraSwitchFade(function(activateMask, maskTiming)
+        if cameraFacing == 'back' then
+            if maskTiming == 'before_full_switch' then
+                activateMask('before_full_switch')
+            end
+
+            RestoreLocalPlayerAfterCamera('camera_selfie')
+            selfieOrbitYaw = 0.0
+            selfieOrbitPitch = 0.0
             StopCameraHoldAnim('native_selfie_start')
-        end
-        MZPhone.Camera.CreatePhoneCamera()
-        if not nativeSelfieActive then
+            if cameraCam then
+                RenderScriptCams(false, false, 0, true, true)
+                DestroyCam(cameraCam, false)
+                cameraCam = nil
+            end
+            cameraFacing = 'front'
+            local limits = cameraFovLimits()
+            cameraFov = clamp(limits.default, limits.min, limits.max)
+
+            if useNativeSelfieCamera() then
+                startNativeSelfieCamera(function()
+                    activateMask('before_front_activate')
+                end, function()
+                    activateMask('after_front_activate')
+                end)
+                setCameraPlayerFrozen(true, 'native_selfie_start')
+            else
+                MZPhone.Camera.CreatePhoneCamera()
+            end
+
+            if maskTiming == 'after_full_switch' then
+                activateMask('after_full_switch')
+            end
+
+            if not nativeSelfieActive then
+                CreateCameraPhoneProp()
+                PlayCameraAnim(nil, nil, holdProfileName())
+                ApplyCameraPropVisibility()
+            end
+            cameraAnimLog('switch back_to_selfie')
+        else
+            if maskTiming == 'before_full_switch' or maskTiming == 'before_front_activate' then
+                activateMask('before_full_switch', true)
+            end
+
+            stopNativeSelfieCamera('switch_selfie_to_back')
+            cameraFacing = 'back'
+            local limits = cameraFovLimits()
+            cameraFov = clamp(limits.default, limits.min, limits.max)
+            MZPhone.Camera.CreatePhoneCamera()
+            HideLocalPlayerForCamera('camera_back')
             CreateCameraPhoneProp()
             PlayCameraAnim(nil, nil, holdProfileName())
             ApplyCameraPropVisibility()
-        end
-        cameraAnimLog('switch back_to_selfie')
-    else
-        cameraFacing = 'back'
-        stopNativeSelfieCamera('switch_selfie_to_back')
-        local limits = cameraFovLimits()
-        cameraFov = clamp(limits.default, limits.min, limits.max)
-        MZPhone.Camera.CreatePhoneCamera()
-        HideLocalPlayerForCamera('camera_back')
-        CreateCameraPhoneProp()
-        PlayCameraAnim(nil, nil, holdProfileName())
-        ApplyCameraPropVisibility()
-        cameraAnimLog('switch selfie_to_back')
-    end
 
+            if maskTiming == 'after_full_switch' or maskTiming == 'after_front_activate' then
+                activateMask('after_full_switch', true)
+            end
+
+            cameraAnimLog('switch selfie_to_back')
+        end
+    end)
+
+    isSwitchingCamera = false
     sendCameraHud(true, cameraHudPayload('ready'))
 end
 
 local function updateCameraZoom(direction)
-    local zoom = zoomConfig()
-    if zoom.Enabled ~= true then
+    if not isCameraZoomEnabled() or isSwitchingCamera or not cameraCam then
         return
     end
 
@@ -1770,8 +1952,10 @@ function MZPhone.Camera.StopCameraMode(reason, options)
 
     cameraMode = false
     isCapturing = false
+    isSwitchingCamera = false
 
     sendCameraHud(false)
+    restoreCameraSwitchFade()
     restorePlayerVisibility()
     RestoreLocalPlayerAfterCamera('camera_stop')
     RestoreCameraPropAfterCapture()
@@ -1801,7 +1985,7 @@ function MZPhone.Camera.HandleCameraControls()
 
             applyCameraControlLocks()
 
-            if not isCapturing then
+            if not isCapturing and not isSwitchingCamera then
                 if IsDisabledControlJustPressed(0, 24) or IsControlJustPressed(0, 191) then
                     MZPhone.Camera.CapturePhoto({}, function() end)
                 elseif IsDisabledControlJustPressed(0, 199)

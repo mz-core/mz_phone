@@ -133,6 +133,24 @@
     sans-serif;
 }
 
+.camera-transition-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--camera-mask-fade, 140ms) ease;
+}
+
+.camera-transition-mask.is-active {
+  opacity: 1;
+}
+
+.camera-transition-mask.is-instant {
+  transition: none;
+}
+
 .camera-hud.is-visible {
   display: block;
 }

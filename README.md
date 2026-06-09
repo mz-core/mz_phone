@@ -108,6 +108,27 @@ Config.Phone.Camera.SelfieCamera.Orbit.HeightRange = 0.22
 
 O modo `native_reference` usa `CreateMobilePhone`, `CellCamActivate` e `CellFrontCamActivate` apenas na selfie. Se quiser voltar para a selfie 100% scriptada para calibrar offsets, troque `AnchorMode` para `framed`.
 
+No `native_reference`, o zoom do `mz_phone` fica desligado: o HUD nao mostra `Scroll: zoom`, nao mostra multiplicador de zoom e o scroll nao altera FOV, porque a camera ativa e a nativa do GTA. No back mode, o zoom scriptado continua normal.
+
+Na troca back/selfie, o `mz_phone` esconde o HUD, bloqueia updates e usa uma mascara preta fullscreen pela NUI. A troca real acontece enquanto a mascara esta ativa, e a mascara continua por alguns ms depois da troca para cobrir o frame final de estabilizacao da camera nativa:
+
+```lua
+Config.Phone.Camera.Transition.Enabled = true
+Config.Phone.Camera.Transition.Mode = 'post_switch_mask'
+Config.Phone.Camera.Transition.UseMask = true
+Config.Phone.Camera.Transition.MaskInstantOn = true
+Config.Phone.Camera.Transition.MaskTiming = 'before_front_activate'
+Config.Phone.Camera.Transition.MaskFadeInMs = 120
+Config.Phone.Camera.Transition.PreSwitchHoldMs = 0
+Config.Phone.Camera.Transition.UseScreenFade = false
+Config.Phone.Camera.Transition.PostSwitchMaskDelayFrames = 0
+Config.Phone.Camera.Transition.PostSwitchHoldMs = 320
+Config.Phone.Camera.Transition.PostSwitchSettleFrames = 15
+Config.Phone.Camera.Transition.MaskFadeOutMs = 140
+```
+
+Se a piscada ainda aparecer, teste `MaskTiming = 'after_front_activate'`. Se resolver mas ficar lento, reduza `PostSwitchHoldMs` e `PostSwitchSettleFrames` aos poucos.
+
 O perfil recomendado para selfie scriptada e `camera`. Evite `call` na selfie, porque ele leva o telefone para a orelha e deixa a camera de lado:
 
 ```lua

@@ -68,6 +68,22 @@ Config.Phone = {
             Key = 38,
             AllowSelfie = true
         },
+        Transition = {
+            Enabled = true,
+            Mode = 'post_switch_mask', -- post_switch_mask, pre_mask, screen_fade ou off
+            UseMask = true,
+            MaskInstantOn = true,
+            MaskTiming = 'before_front_activate', -- before_front_activate, after_front_activate, before_full_switch ou after_full_switch
+            MaskFadeInMs = 120,
+            PreSwitchHoldMs = 0,
+            PostSwitchMaskDelayFrames = 0,
+            UseScreenFade = false,
+            FadeOutMs = 80,
+            FadeInMs = 0,
+            PostSwitchHoldMs = 320,
+            PostSwitchSettleFrames = 15,
+            MaskFadeOutMs = 140
+        },
         BackCamera = {
             Enabled = true,
             Offset = {
