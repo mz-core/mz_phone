@@ -69,8 +69,10 @@ local function selfieCameraConfig()
 end
 
 local function useNativeSelfieCamera()
+    local cfg = cameraConfig()
     local selfie = selfieCameraConfig()
-    return cameraFacing == 'front' and tostring(selfie.AnchorMode or '') == 'native_reference'
+    local hold = type(cfg.HoldAnimation) == 'table' and cfg.HoldAnimation or {}
+    return cameraFacing == 'front' and hold.UseNativeSelfie ~= false and tostring(selfie.AnchorMode or '') == 'native_reference'
 end
 
 local function holdAnimationConfig()
@@ -931,7 +933,7 @@ local function resolveCameraAnim(profileName, animName, flags)
     local cfg = holdAnimationConfig()
     local profile = holdProfile(profileName or holdProfileName())
     local flagConfig = type(cfg.Flags) == 'table' and cfg.Flags or {}
-    local defaultFlag = tonumber(flagConfig.Default) or 49
+    local defaultFlag = tonumber(flagConfig.Default) or tonumber(cfg.Flag) or 49
 
     if cameraFacing == 'front' then
         defaultFlag = tonumber(flagConfig.Selfie) or defaultFlag
@@ -1029,7 +1031,9 @@ local function CreateCameraPhoneProp()
 
     if DoesEntityExist(cameraHoldProp) then
         SetEntityAsMissionEntity(cameraHoldProp, true, true)
-        SetEntityCollision(cameraHoldProp, false, false)
+        if cfg.DisableCollision ~= false then
+            SetEntityCollision(cameraHoldProp, false, false)
+        end
         local modeCfg = holdModeConfig()
         local offset = type(modeCfg.Offset) == 'table' and modeCfg.Offset or type(cfg.Offset) == 'table' and cfg.Offset or {}
         local rotation = type(modeCfg.Rotation) == 'table' and modeCfg.Rotation or type(cfg.Rotation) == 'table' and cfg.Rotation or {}
@@ -1125,6 +1129,14 @@ local function StartCameraHoldAnimation()
         return
     end
 
+    if cameraFacing == 'back' and cfg.UseForBackCamera == false then
+        return
+    end
+
+    if useNativeSelfieCamera() then
+        return
+    end
+
     local ped = PlayerPedId()
     cameraHoldActive = true
 
@@ -1135,7 +1147,7 @@ local function StartCameraHoldAnimation()
     end
 
     CreateCameraPhoneProp()
-    PlayCameraAnim(cfg.EnterAnim or nil, 49, holdProfileName())
+    PlayCameraAnim(cfg.EnterAnim or nil, cfg.Flag, holdProfileName())
 
     CreateThread(function()
         Wait(450)
@@ -1183,7 +1195,9 @@ local function HideCameraPropForCapture()
     local cfg = holdAnimationConfig()
     local backCfg = backCameraConfig()
     local selfie = selfieCameraConfig()
-    local hideInBack = cfg.HidePropBeforeCapture == true or backCfg.HidePropBeforeCapture == true
+    local hideInBack = cfg.HidePropBeforeCapture == true
+        or cfg.HidePropBeforeBackCapture == true
+        or backCfg.HidePropBeforeCapture == true
     if cameraFacing == 'back' and not hideInBack then
         return
     end
@@ -1927,6 +1941,7 @@ AddEventHandler('onResourceStop', function(resourceName)
         CleanupCameraAnimation('resource_stop')
     end
 
+    stopNativeSelfieCamera('resource_stop')
     setCameraPlayerFrozen(false, 'resource_stop')
     RestoreLocalPlayerAfterCamera('resource_stop')
 end)

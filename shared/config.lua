@@ -136,6 +136,8 @@ Config.Phone = {
         },
         HoldAnimation = {
             Enabled = true,
+            UseForBackCamera = true,
+            UseNativeSelfie = true,
             Model = 'prop_amb_phone',
             Prop = 'prop_amb_phone',
             PropModels = {
@@ -149,6 +151,7 @@ Config.Phone = {
             EnterAnim = 'cellphone_text_in',
             IdleAnim = 'cellphone_text_read_base',
             Anim = 'cellphone_text_read_base',
+            Flag = 49,
             ExitAnim = 'cellphone_text_out',
             CallAnim = 'cellphone_text_to_call',
             CallToTextAnim = 'cellphone_call_to_text',
@@ -157,8 +160,10 @@ Config.Phone = {
             Offset = { x = 0.0, y = 0.0, z = 0.0 },
             Rotation = { x = 0.0, y = 0.0, z = 0.0 },
             HidePropBeforeCapture = true,
-            HidePropInBackMode = true,
+            HidePropBeforeBackCapture = true,
+            HidePropInBackMode = false,
             ShowPropInSelfieMode = true,
+            DisableCollision = true,
             DisableWeapon = true,
             CleanupOnStop = true,
             ActiveProfile = 'text',
@@ -194,7 +199,7 @@ Config.Phone = {
                 }
             },
             Back = {
-                Visible = false,
+                Visible = true,
                 Offset = { x = 0.0, y = 0.0, z = 0.0 },
                 Rotation = { x = 0.0, y = 0.0, z = 0.0 }
             },

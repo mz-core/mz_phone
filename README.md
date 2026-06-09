@@ -71,6 +71,23 @@ Config.Phone.Camera.BackCamera.HidePlayerOnlyForCapture = true
 Config.Phone.Camera.BackCamera.UseLocalInvisible = true
 ```
 
+O back continua usando script cam, zoom e `screenshot-basic`, mas o personagem usa uma pose manual de celular inspirada no comportamento padrao/nativo. Essa pose fica no `HoldAnimation`, que e o "NativeHold" do `mz_phone` sem criar uma segunda config duplicada:
+
+```lua
+Config.Phone.Camera.HoldAnimation.UseForBackCamera = true
+Config.Phone.Camera.HoldAnimation.UseNativeSelfie = true
+Config.Phone.Camera.HoldAnimation.Model = 'prop_amb_phone'
+Config.Phone.Camera.HoldAnimation.Bone = 28422
+Config.Phone.Camera.HoldAnimation.Dict = 'cellphone@'
+Config.Phone.Camera.HoldAnimation.DictInVehicle = 'anim@cellphone@in_car@ps'
+Config.Phone.Camera.HoldAnimation.ActiveProfile = 'text'
+Config.Phone.Camera.HoldAnimation.Back.Visible = true
+Config.Phone.Camera.HoldAnimation.HidePropBeforeBackCapture = true
+Config.Phone.Camera.HoldAnimation.DisableCollision = true
+```
+
+Assim, outro jogador ve o personagem segurando o celular no back mode, mas o prop e escondido antes do screenshot quando `HidePropBeforeBackCapture` estiver ativo.
+
 Na selfie, o modo padrao usa a camera nativa frontal do GTA como referencia, igual ao celular em `celular/resource` + `celular/web`. A camera back continua scriptada no `mz_phone`; somente a selfie usa esse modo para evitar enquadramento torto, colado no rosto ou preso na orelha:
 
 ```lua
