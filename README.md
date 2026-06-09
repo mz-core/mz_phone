@@ -46,7 +46,19 @@ O comando `/mzphone_debug` exige `Config.Debug.AllowCommand = true` e permissao 
 
 ## Camera e selfie
 
-A camera back do `mz_phone` continua scriptada. A selfie padrao usa `AnchorMode = 'native_reference'`, inspirado no celular de referencia, com `CreateMobilePhone`/`CellCamActivate` apenas no modo selfie.
+A camera padrao do `mz_phone` agora usa o sistema nativo do GTA tanto na traseira quanto na selfie. O modo hibrido antigo continua disponivel por config, mas nao e mais o padrao:
+
+```lua
+Config.Phone.Camera.CameraSystem = 'native' -- native, hybrid ou scripted
+Config.Phone.Camera.Native = {
+    Enabled = true,
+    PhoneType = 1,
+    StartFront = false,
+    AllowSwitch = true,
+    DisableCustomZoom = true,
+    KeepHud = true
+}
+```
 
 Enquanto o modo camera fica ativo, o jogador fica parado por padrao. Isso evita o efeito de correr no lugar enquanto a animacao de celular esta ativa:
 
@@ -59,9 +71,9 @@ Config.Phone.Camera.Controls = {
 }
 ```
 
-O mouse, scroll de zoom, `E`, clique/ENTER para foto e ESC/BACKSPACE para cancelar continuam funcionando.
+No modo `native`, `E`, clique/ENTER para foto e ESC/BACKSPACE para cancelar continuam funcionando. O zoom custom do `mz_phone` fica desligado, porque a camera ativa e a nativa do GTA.
 
-No modo back, o player nao fica invisivel globalmente por padrao. A camera fica na frente do ped e olha para frente usando:
+No modo `hybrid`, a back camera volta a usar a script cam antiga. Nesse fallback, o player nao fica invisivel globalmente por padrao e a camera fica na frente do ped usando:
 
 ```lua
 Config.Phone.Camera.BackCamera.Offset = { x = 0.0, y = 0.55, z = 0.74 }
@@ -71,7 +83,7 @@ Config.Phone.Camera.BackCamera.HidePlayerOnlyForCapture = true
 Config.Phone.Camera.BackCamera.UseLocalInvisible = true
 ```
 
-O back continua usando script cam, zoom e `screenshot-basic`, mas o personagem usa uma pose manual de celular inspirada no comportamento padrao/nativo. Essa pose fica no `HoldAnimation`, que e o "NativeHold" do `mz_phone` sem criar uma segunda config duplicada:
+No `hybrid`, o back usa script cam, zoom e `screenshot-basic`, com pose manual de celular no `HoldAnimation`:
 
 ```lua
 Config.Phone.Camera.HoldAnimation.UseForBackCamera = true
@@ -86,9 +98,9 @@ Config.Phone.Camera.HoldAnimation.HidePropBeforeBackCapture = true
 Config.Phone.Camera.HoldAnimation.DisableCollision = true
 ```
 
-Assim, outro jogador ve o personagem segurando o celular no back mode, mas o prop e escondido antes do screenshot quando `HidePropBeforeBackCapture` estiver ativo.
+Assim, no fallback hibrido, outro jogador ve o personagem segurando o celular no back mode, mas o prop e escondido antes do screenshot quando `HidePropBeforeBackCapture` estiver ativo.
 
-Na selfie, o modo padrao usa a camera nativa frontal do GTA como referencia, igual ao celular em `celular/resource` + `celular/web`. A camera back continua scriptada no `mz_phone`; somente a selfie usa esse modo para evitar enquadramento torto, colado no rosto ou preso na orelha:
+No modo `native`, a troca back/selfie e feita apenas com `CellFrontCamActivate(false/true)`, sem destruir/recriar script cam. No `hybrid`, a selfie usa a camera nativa frontal do GTA como referencia, igual ao celular em `celular/resource` + `celular/web`:
 
 ```lua
 Config.Phone.Camera.SelfieCamera.UsePhonePropAsLens = true
@@ -106,11 +118,11 @@ Config.Phone.Camera.SelfieCamera.Orbit.SideRange = 0.35
 Config.Phone.Camera.SelfieCamera.Orbit.HeightRange = 0.22
 ```
 
-O modo `native_reference` usa `CreateMobilePhone`, `CellCamActivate` e `CellFrontCamActivate` apenas na selfie. Se quiser voltar para a selfie 100% scriptada para calibrar offsets, troque `AnchorMode` para `framed`.
+O modo `native` usa `CreateMobilePhone`, `CellCamActivate` e `CellFrontCamActivate` na camera inteira. O `native_reference` continua sendo usado pela selfie no fallback `hybrid`. Se quiser voltar para a selfie 100% scriptada no modo `scripted`, troque `AnchorMode` para `framed`.
 
-No `native_reference`, o zoom do `mz_phone` fica desligado: o HUD nao mostra `Scroll: zoom`, nao mostra multiplicador de zoom e o scroll nao altera FOV, porque a camera ativa e a nativa do GTA. No back mode, o zoom scriptado continua normal.
+No `native`, o zoom do `mz_phone` fica desligado nos dois lados: o HUD nao mostra `Scroll: zoom`, nao mostra multiplicador de zoom e o scroll nao altera FOV. No `hybrid`, o zoom scriptado continua normal no back.
 
-Na troca back/selfie, o `mz_phone` esconde o HUD, bloqueia updates e usa uma mascara preta fullscreen pela NUI. A troca real acontece enquanto a mascara esta ativa, e a mascara continua por alguns ms depois da troca para cobrir o frame final de estabilizacao da camera nativa:
+No `native`, a transicao pesada e ignorada na troca simples de front/back. A mascara abaixo continua disponivel para o modo `hybrid`, caso voce volte para ele:
 
 ```lua
 Config.Phone.Camera.Transition.Enabled = true

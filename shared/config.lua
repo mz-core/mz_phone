@@ -43,6 +43,7 @@ Config.Phone = {
     },
     Camera = {
         Enabled = true,
+        CameraSystem = 'native', -- native, hybrid ou scripted
         Mode = 'gameplay',
         OpenDirectly = true,
         HidePhoneWhileActive = true,
@@ -67,6 +68,14 @@ Config.Phone = {
             Enabled = true,
             Key = 38,
             AllowSelfie = true
+        },
+        Native = {
+            Enabled = true,
+            PhoneType = 1,
+            StartFront = false,
+            AllowSwitch = true,
+            DisableCustomZoom = true,
+            KeepHud = true
         },
         Transition = {
             Enabled = true,

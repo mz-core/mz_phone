@@ -13,7 +13,8 @@ local cameraResultReturnApp = 'home'
 local cameraCam = nil
 local cameraFov = nil
 local cameraPlayerFrozen = false
-local nativeSelfieActive = false
+local nativeCameraActive = false
+local nativeFrontCamera = false
 local previousGameplayFov = nil
 local previousPedCamViewMode = nil
 local previousVehicleCamViewMode = nil
@@ -64,6 +65,11 @@ local function transitionConfig()
     return type(cfg.Transition) == 'table' and cfg.Transition or {}
 end
 
+local function nativeCameraConfig()
+    local cfg = cameraConfig()
+    return type(cfg.Native) == 'table' and cfg.Native or {}
+end
+
 local function backCameraConfig()
     local cfg = cameraConfig()
     return type(cfg.BackCamera) == 'table' and cfg.BackCamera or {}
@@ -74,16 +80,39 @@ local function selfieCameraConfig()
     return type(cfg.SelfieCamera) == 'table' and cfg.SelfieCamera or {}
 end
 
+local function cameraSystem()
+    local cfg = cameraConfig()
+    local system = tostring(cfg.CameraSystem or 'native'):lower()
+
+    if system ~= 'native' and system ~= 'hybrid' and system ~= 'scripted' then
+        return 'native'
+    end
+
+    return system
+end
+
+local function useNativeCameraSystem()
+    local native = nativeCameraConfig()
+    return cameraSystem() == 'native' and native.Enabled ~= false
+end
+
 local function useNativeSelfieCamera()
     local cfg = cameraConfig()
     local selfie = selfieCameraConfig()
     local hold = type(cfg.HoldAnimation) == 'table' and cfg.HoldAnimation or {}
-    return cameraFacing == 'front' and hold.UseNativeSelfie ~= false and tostring(selfie.AnchorMode or '') == 'native_reference'
+    return cameraFacing == 'front'
+        and cameraSystem() ~= 'scripted'
+        and hold.UseNativeSelfie ~= false
+        and tostring(selfie.AnchorMode or '') == 'native_reference'
 end
 
 local function isCameraZoomEnabled()
     local zoom = zoomConfig()
     if zoom.Enabled ~= true then
+        return false
+    end
+
+    if useNativeCameraSystem() and nativeCameraConfig().DisableCustomZoom ~= false then
         return false
     end
 
@@ -311,33 +340,64 @@ local function CellFrontCamActivateCompat(state)
     Citizen.InvokeNative(0x2491A93618B7D838, state == true)
 end
 
-local function stopNativeSelfieCamera(reason)
-    if not nativeSelfieActive then
+local function stopNativePhoneCamera(reason, force)
+    if not nativeCameraActive and force ~= true then
         return
     end
 
     CellFrontCamActivateCompat(false)
     CellCamActivate(false, false)
     DestroyMobilePhone()
-    nativeSelfieActive = false
-    cameraLog(('native selfie stop reason=%s'):format(tostring(reason or 'camera_stop')))
+    nativeCameraActive = false
+    nativeFrontCamera = false
+    cameraLog(('native camera stop reason=%s'):format(tostring(reason or 'camera_stop')))
+end
+
+local function startNativePhoneCamera(front, beforeFrontActivate, afterFrontActivate)
+    local native = nativeCameraConfig()
+    stopNativePhoneCamera('restart_native_camera')
+    ClearPedSecondaryTask(PlayerPedId())
+    ClearPedTasks(PlayerPedId())
+    CreateMobilePhone(tonumber(native.PhoneType) or 1)
+    CellCamActivate(true, true)
+
+    if front == true and type(beforeFrontActivate) == 'function' then
+        beforeFrontActivate()
+    end
+
+    CellFrontCamActivateCompat(front == true)
+
+    if front == true and type(afterFrontActivate) == 'function' then
+        afterFrontActivate()
+    end
+
+    nativeCameraActive = true
+    nativeFrontCamera = front == true
+    cameraLog(('native camera start front=%s'):format(tostring(nativeFrontCamera)))
+end
+
+local function setNativeFrontCamera(front, beforeFrontActivate, afterFrontActivate)
+    if not nativeCameraActive then
+        startNativePhoneCamera(front == true, beforeFrontActivate, afterFrontActivate)
+        return
+    end
+
+    if front == true and type(beforeFrontActivate) == 'function' then
+        beforeFrontActivate()
+    end
+
+    CellFrontCamActivateCompat(front == true)
+
+    if front == true and type(afterFrontActivate) == 'function' then
+        afterFrontActivate()
+    end
+
+    nativeFrontCamera = front == true
+    cameraLog(('native camera switch front=%s'):format(tostring(nativeFrontCamera)))
 end
 
 local function startNativeSelfieCamera(beforeFrontActivate, afterFrontActivate)
-    stopNativeSelfieCamera('restart_native_selfie')
-    ClearPedSecondaryTask(PlayerPedId())
-    ClearPedTasks(PlayerPedId())
-    CreateMobilePhone(1)
-    CellCamActivate(true, true)
-    if type(beforeFrontActivate) == 'function' then
-        beforeFrontActivate()
-    end
-    CellFrontCamActivateCompat(true)
-    if type(afterFrontActivate) == 'function' then
-        afterFrontActivate()
-    end
-    nativeSelfieActive = true
-    cameraLog('native selfie start')
+    startNativePhoneCamera(true, beforeFrontActivate, afterFrontActivate)
 end
 
 local function setCameraPlayerFrozen(state, reason)
@@ -572,6 +632,12 @@ end
 
 local function cameraHudPayload(status, extra)
     local switchCfg = switchCameraConfig()
+    local native = nativeCameraConfig()
+    local switchEnabled = switchCfg.Enabled == true and switchCfg.AllowSelfie ~= false
+    if useNativeCameraSystem() and native.AllowSwitch == false then
+        switchEnabled = false
+    end
+
     local payload = {
         status = status or 'ready',
         mode = tostring(cameraConfig().Mode or 'gameplay'),
@@ -580,7 +646,7 @@ local function cameraHudPayload(status, extra)
         zoomEnabled = isCameraZoomEnabled(),
         zoomLabel = zoomLabel(),
         switchCamera = {
-            Enabled = switchCfg.Enabled == true and switchCfg.AllowSelfie ~= false,
+            Enabled = switchEnabled,
             Key = tonumber(switchCfg.Key) or 38
         }
     }
@@ -689,6 +755,10 @@ end
 local function hidePlayerForCapture()
     local fp = firstPersonConfig()
     local backCfg = backCameraConfig()
+
+    if useNativeCameraSystem() then
+        return 0
+    end
 
     if cameraFacing == 'front' then
         return 0
@@ -1481,8 +1551,11 @@ function MZPhone.Camera.CreatePhoneCamera()
         MZPhone.Camera.DestroyPhoneCamera()
     end
 
-    local ped = PlayerPedId()
-    local coords = GetEntityCoords(ped)
+    if useNativeCameraSystem() then
+        startNativePhoneCamera(cameraFacing == 'front')
+        setCameraPlayerFrozen(true, 'native_camera_start')
+        return true
+    end
 
     if useNativeSelfieCamera() then
         startNativeSelfieCamera()
@@ -1490,7 +1563,7 @@ function MZPhone.Camera.CreatePhoneCamera()
         return true
     end
 
-    stopNativeSelfieCamera('scripted_camera_start')
+    stopNativePhoneCamera('scripted_camera_start')
 
     cameraCam = CreateCam('DEFAULT_SCRIPTED_CAMERA', true)
     SetCamFov(cameraCam, cameraFov)
@@ -1508,7 +1581,7 @@ function MZPhone.Camera.CreatePhoneCamera()
 end
 
 function MZPhone.Camera.DestroyPhoneCamera()
-    stopNativeSelfieCamera('destroy_camera')
+    stopNativePhoneCamera('destroy_camera')
 
     if cameraCam then
         RenderScriptCams(false, false, 0, true, true)
@@ -1522,7 +1595,7 @@ local function updateSelfieCamera()
         return
     end
 
-    if nativeSelfieActive then
+    if nativeCameraActive then
         HideHudAndRadarThisFrame()
         return
     end
@@ -1714,7 +1787,15 @@ local function toggleCameraFacing()
     end
 
     local switchCfg = switchCameraConfig()
-    if switchCfg.Enabled ~= true or switchCfg.AllowSelfie == false then
+    local native = nativeCameraConfig()
+    if switchCfg.Enabled ~= true or switchCfg.AllowSelfie == false or (useNativeCameraSystem() and native.AllowSwitch == false) then
+        return
+    end
+
+    if useNativeCameraSystem() then
+        cameraFacing = cameraFacing == 'back' and 'front' or 'back'
+        setNativeFrontCamera(cameraFacing == 'front')
+        sendCameraHud(true, cameraHudPayload('ready'))
         return
     end
 
@@ -1755,7 +1836,7 @@ local function toggleCameraFacing()
                 activateMask('after_full_switch')
             end
 
-            if not nativeSelfieActive then
+            if not nativeCameraActive then
                 CreateCameraPhoneProp()
                 PlayCameraAnim(nil, nil, holdProfileName())
                 ApplyCameraPropVisibility()
@@ -1766,7 +1847,7 @@ local function toggleCameraFacing()
                 activateMask('before_full_switch', true)
             end
 
-            stopNativeSelfieCamera('switch_selfie_to_back')
+            stopNativePhoneCamera('switch_selfie_to_back')
             cameraFacing = 'back'
             local limits = cameraFovLimits()
             cameraFov = clamp(limits.default, limits.min, limits.max)
@@ -2038,15 +2119,22 @@ function MZPhone.Camera.StartCameraMode(data, cb)
     end
 
     releasePhoneFocus('camera_start')
-    forceFirstPersonCamera()
-    local gameplayRot = GetGameplayCamRot(2)
-    cameraRotX = gameplayRot.x
-    cameraRotZ = gameplayRot.z
-    setupCameraFov()
-    MZPhone.Camera.CreatePhoneCamera()
-    StartCameraHoldAnim()
-    HideLocalPlayerForCamera('camera_start')
-    ApplyCameraPropVisibility()
+
+    if not useNativeCameraSystem() then
+        forceFirstPersonCamera()
+        local gameplayRot = GetGameplayCamRot(2)
+        cameraRotX = gameplayRot.x
+        cameraRotZ = gameplayRot.z
+        setupCameraFov()
+        MZPhone.Camera.CreatePhoneCamera()
+        StartCameraHoldAnim()
+        HideLocalPlayerForCamera('camera_start')
+        ApplyCameraPropVisibility()
+    else
+        cameraFacing = nativeCameraConfig().StartFront == true and 'front' or 'back'
+        setupCameraFov()
+        MZPhone.Camera.CreatePhoneCamera()
+    end
 
     cameraMode = true
     isCapturing = false
@@ -2125,7 +2213,7 @@ AddEventHandler('onResourceStop', function(resourceName)
         CleanupCameraAnimation('resource_stop')
     end
 
-    stopNativeSelfieCamera('resource_stop')
+    stopNativePhoneCamera('resource_stop', true)
     setCameraPlayerFrozen(false, 'resource_stop')
     RestoreLocalPlayerAfterCamera('resource_stop')
 end)
