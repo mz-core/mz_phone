@@ -356,6 +356,266 @@ local function buildDefaults(identity, phoneNumber)
     }
 end
 
+local function compactNumber(value)
+    return tonumber(value) or 0
+end
+
+local function formatCurrency(value)
+    local amount = math.floor(compactNumber(value) + 0.5)
+    local raw = tostring(amount)
+    local reversed = raw:reverse():gsub('(%d%d%d)', '%1.'):reverse()
+
+    if reversed:sub(1, 1) == '.' then
+        reversed = reversed:sub(2)
+    end
+
+    return ('R$ %s'):format(reversed)
+end
+
+local function tableText(root, ...)
+    if type(root) ~= 'table' then return '' end
+
+    for _, key in ipairs({ ... }) do
+        local value = root[key]
+        if type(value) == 'string' or type(value) == 'number' then
+            local text = Security.SanitizeText(value, 160)
+            if text ~= '' then return text end
+        end
+    end
+
+    return ''
+end
+
+local function realEstateResourceReady()
+    return GetResourceState('mz_realestate') == 'started'
+end
+
+local function realEstateSafeExport(name, ...)
+    if not realEstateResourceReady() then
+        return nil, 'realestate_unavailable'
+    end
+
+    local ok, result, extra = pcall(function(...)
+        return exports['mz_realestate'][name](...)
+    end, ...)
+
+    if not ok then
+        Security.Log('realestate', 0, ('export=%s error=%s'):format(tostring(name), tostring(result)), true)
+        return nil, 'realestate_export_failed'
+    end
+
+    return result, extra
+end
+
+local function normalizeRealEstateCoords(coords)
+    if type(coords) ~= 'table' then return nil end
+
+    local x = tonumber(coords.x or coords[1])
+    local y = tonumber(coords.y or coords[2])
+    local z = tonumber(coords.z or coords[3]) or 0.0
+
+    if not x or not y or math.abs(x) > 10000.0 or math.abs(y) > 10000.0 then
+        return nil
+    end
+
+    return { x = x + 0.0, y = y + 0.0, z = z + 0.0 }
+end
+
+local function sanitizeRealEstateImageUrl(value)
+    value = Security.SanitizeText(value or '', 1000):gsub('\\', '/')
+    if value == '' or value:find('[%s<>"]') or value:find('%.%.', 1, true) then
+        return ''
+    end
+
+    if value:find('^https?://') or value:find('^nui://') then
+        return value
+    end
+
+    if value:find('^uploads/') then
+        return ('nui://mz_realestate/%s'):format(value)
+    end
+
+    return ''
+end
+
+local function normalizeRealEstatePhotos(photos)
+    if type(photos) ~= 'table' then return {}, '' end
+
+    local out = {}
+    local cover = ''
+
+    for _, photo in ipairs(photos) do
+        if type(photo) == 'table' then
+            local imageUrl = sanitizeRealEstateImageUrl(photo.imageUrl or photo.image_url or photo.url)
+            local thumbnailUrl = sanitizeRealEstateImageUrl(photo.thumbnailUrl or photo.thumbnail_url)
+
+            if imageUrl ~= '' or thumbnailUrl ~= '' then
+                local payload = {
+                    id = photo.id,
+                    imageUrl = imageUrl ~= '' and imageUrl or thumbnailUrl,
+                    thumbnailUrl = thumbnailUrl,
+                    caption = Security.SanitizeText(photo.caption or '', 120),
+                    isPrimary = photo.isPrimary == true or photo.is_primary == true or photo.is_primary == 1
+                }
+
+                out[#out + 1] = payload
+
+                if payload.isPrimary and payload.imageUrl ~= '' then
+                    cover = payload.imageUrl
+                elseif cover == '' and payload.imageUrl ~= '' then
+                    cover = payload.imageUrl
+                end
+            end
+        end
+    end
+
+    return out, cover
+end
+
+local function realEstateLocationValue(listing, key)
+    local metadata = type(listing.metadata) == 'table' and listing.metadata or {}
+    local location = type(metadata.location) == 'table' and metadata.location or {}
+    local property = type(listing.property) == 'table' and listing.property or {}
+
+    local value = tableText(metadata, key)
+    if value ~= '' then return value end
+
+    value = tableText(location, key)
+    if value ~= '' then return value end
+
+    return tableText(property, key)
+end
+
+local function normalizeRealEstateListing(listing, includeDetails)
+    if type(listing) ~= 'table' then return nil end
+
+    local listingCode = Security.SanitizeText(listing.listingCode or listing.listing_code or '', 64)
+    if listingCode == '' then return nil end
+
+    local listingType = Security.SanitizeText(listing.listingType or listing.listing_type or '', 24)
+    local price = compactNumber(listing.price)
+    local photos, coverImage = normalizeRealEstatePhotos(listing.photos)
+    local brokerName = Security.SanitizeText(listing.brokerName or listing.signBrokerName or listing.agencyName or '', 120)
+    local brokerPhone = Security.SanitizeText(listing.brokerPhone or listing.signPhone or listing.agencyPhone or '', 40)
+    local metadata = type(listing.metadata) == 'table' and listing.metadata or {}
+    local address = realEstateLocationValue(listing, 'address')
+    local neighborhood = realEstateLocationValue(listing, 'neighborhood')
+    local city = realEstateLocationValue(listing, 'city')
+
+    local out = {
+        listingCode = listingCode,
+        propertyCode = Security.SanitizeText(listing.propertyCode or listing.property_code or '', 64),
+        title = Security.SanitizeText(listing.title or listing.signLabel or 'Imovel anunciado', 120),
+        description = Security.SanitizeText(listing.description or '', 1000),
+        listingType = listingType,
+        typeLabel = Security.SanitizeText(listing.typeLabel or '', 40),
+        price = price,
+        formattedPrice = Security.SanitizeText(listing.priceText or '', 40) ~= '' and Security.SanitizeText(listing.priceText, 40) or formatCurrency(price),
+        coverImage = coverImage,
+        brokerName = brokerName,
+        brokerPhone = brokerPhone,
+        agencyName = Security.SanitizeText(listing.agencyName or '', 120),
+        agencyPhone = Security.SanitizeText(listing.agencyPhone or '', 40),
+        neighborhood = neighborhood,
+        city = city,
+        address = address,
+        status = Security.SanitizeText(listing.status or 'active', 24),
+        showSign = listing.showSign == true or listing.show_sign == true or listing.show_sign == 1,
+        signPhone = Security.SanitizeText(listing.signPhone or listing.sign_phone or listing.brokerPhone or '', 40),
+        signBrokerName = Security.SanitizeText(listing.signBrokerName or listing.sign_broker_name or listing.brokerName or '', 120),
+        createdAt = Security.SanitizeText(listing.createdAt or listing.created_at or '', 40),
+        updatedAt = Security.SanitizeText(listing.updatedAt or listing.updated_at or '', 40),
+        propertyLabel = tableText(type(listing.property) == 'table' and listing.property or {}, 'label', 'code'),
+        coords = normalizeRealEstateCoords(listing.coords),
+        metadata = metadata
+    }
+
+    if includeDetails == true then
+        out.photos = photos
+        if out.description == '' then
+            out.description = 'Sem descricao'
+        end
+    end
+
+    return out
+end
+
+local function normalizeRealEstateAccess(access)
+    access = type(access) == 'table' and access or {}
+    local broker = type(access.broker) == 'table' and access.broker or {}
+    local business = type(access.business) == 'table' and access.business or {}
+
+    return {
+        allowed = access.allowed == true,
+        isAdmin = access.isAdmin == true,
+        brokerActive = broker.active == true,
+        brokerName = Security.SanitizeText(broker.name or business.name or '', 120),
+        brokerPhone = Security.SanitizeText(broker.phone or business.phone or '', 40),
+        agencyCode = Security.SanitizeText(broker.agencyCode or business.code or '', 64),
+        agencyName = Security.SanitizeText(business.name or '', 120),
+        fallbackBroker = access.fallbackBroker == true
+    }
+end
+
+local function normalizeRealEstateProperty(property)
+    if type(property) ~= 'table' then return nil end
+
+    local code = Security.SanitizeText(property.code or property.propertyCode or property.property_code or '', 64)
+    if code == '' then return nil end
+
+    return {
+        code = code,
+        label = Security.SanitizeText(property.label or property.name or code, 120),
+        category = Security.SanitizeText(property.category or '', 40),
+        subtype = Security.SanitizeText(property.subtype or '', 40),
+        unitNumber = Security.SanitizeText(property.unitNumber or property.unit_number or '', 40),
+        parentCode = Security.SanitizeText(property.parentCode or property.parent_code or '', 64)
+    }
+end
+
+local function normalizeRealEstateProperties(properties)
+    local out = {}
+    if type(properties) ~= 'table' then return out end
+
+    for _, property in ipairs(properties) do
+        local normalized = normalizeRealEstateProperty(property)
+        if normalized then out[#out + 1] = normalized end
+        if #out >= 120 then break end
+    end
+
+    return out
+end
+
+local function realEstatePhonePayload(data)
+    data = type(data) == 'table' and data or {}
+    local listingType = Security.SanitizeText(data.listingType or data.listing_type or '', 24)
+    if listingType ~= 'sale' and listingType ~= 'rent' then
+        listingType = ''
+    end
+
+    return {
+        listingType = listingType,
+        propertyCode = Security.SanitizeText(data.propertyCode or data.property_code or '', 64),
+        title = Security.SanitizeText(data.title or '', 120),
+        description = Security.SanitizeText(data.description or '', 1200),
+        price = tonumber(data.price) or 0,
+        signPhone = Security.SanitizeText(data.signPhone or data.sign_phone or '', 40),
+        signBrokerName = Security.SanitizeText(data.signBrokerName or data.sign_broker_name or '', 120),
+        showSign = data.showSign == true or data.show_sign == true
+    }
+end
+
+local function realEstateFilterType(filters)
+    filters = type(filters) == 'table' and filters or {}
+    local listingType = Security.SanitizeText(filters.listingType or filters.type or '', 24)
+
+    if listingType == 'sale' or listingType == 'rent' then
+        return listingType
+    end
+
+    return ''
+end
+
 function MZPhoneServer.Service.BuildDebugReport(source)
     Security.LogSource('service/BuildDebugReport', source, true)
 
@@ -500,6 +760,337 @@ function MZPhoneServer.Service.Load(source)
     end
 
     return buildDefaults(identity, number)
+end
+
+function MZPhoneServer.Service.GetRealEstateListings(source, filters)
+    if not Security.RateLimit(source, 'realestate') then
+        return nil, 'rate_limited'
+    end
+
+    local identity, err = Security.RequireIdentity(source, { context = 'realestate_list' })
+    if not identity then
+        return nil, err
+    end
+
+    local requestedType = realEstateFilterType(filters)
+    local rawListings, exportErr = realEstateSafeExport('ListPublicListings', { status = 'active' })
+
+    if not rawListings and exportErr == 'realestate_export_failed' then
+        rawListings, exportErr = realEstateSafeExport('GetActiveListings')
+    end
+
+    if type(rawListings) ~= 'table' then
+        return nil, exportErr or 'realestate_unavailable'
+    end
+
+    local out = {}
+    for _, listing in ipairs(rawListings) do
+        local normalized = normalizeRealEstateListing(listing, false)
+        if normalized and normalized.status == 'active' then
+            if requestedType == '' or normalized.listingType == requestedType then
+                out[#out + 1] = normalized
+            end
+        end
+
+        if #out >= 80 then break end
+    end
+
+    return out
+end
+
+function MZPhoneServer.Service.GetRealEstateListing(source, listingCode)
+    if not Security.RateLimit(source, 'realestate') then
+        return nil, 'rate_limited'
+    end
+
+    local identity, err = Security.RequireIdentity(source, { context = 'realestate_detail' })
+    if not identity then
+        return nil, err
+    end
+
+    listingCode = Security.SanitizeText(listingCode or '', 64)
+    if listingCode == '' then
+        return nil, 'invalid_listing'
+    end
+
+    local rawListing, exportErr = realEstateSafeExport('GetListingByCode', listingCode)
+    if type(rawListing) ~= 'table' then
+        return nil, exportErr or 'listing_not_found'
+    end
+
+    local listing = normalizeRealEstateListing(rawListing, true)
+    if not listing or listing.status ~= 'active' then
+        return nil, 'listing_unavailable'
+    end
+
+    return listing
+end
+
+function MZPhoneServer.Service.GetRealEstateBrokerAccess(source)
+    if not Security.RateLimit(source, 'realestate') then
+        return nil, 'rate_limited'
+    end
+
+    local identity, err = Security.RequireIdentity(source, { context = 'realestate_access' })
+    if not identity then
+        return nil, err
+    end
+
+    local access, exportErr = realEstateSafeExport('GetPhoneBrokerAccess', source)
+    if type(access) ~= 'table' then
+        return nil, exportErr or 'realestate_unavailable'
+    end
+
+    return normalizeRealEstateAccess(access)
+end
+
+function MZPhoneServer.Service.GetRealEstateProperties(source)
+    if not Security.RateLimit(source, 'realestate') then
+        return nil, 'rate_limited'
+    end
+
+    local identity, err = Security.RequireIdentity(source, { context = 'realestate_properties' })
+    if not identity then
+        return nil, err
+    end
+
+    local properties, exportErr = realEstateSafeExport('ListPhoneAdvertisableProperties', source)
+    if type(properties) ~= 'table' then
+        return nil, exportErr or 'properties_unavailable'
+    end
+
+    return normalizeRealEstateProperties(properties)
+end
+
+function MZPhoneServer.Service.GetMyRealEstateListings(source)
+    if not Security.RateLimit(source, 'realestate') then
+        return nil, 'rate_limited'
+    end
+
+    local identity, err = Security.RequireIdentity(source, { context = 'realestate_my_listings' })
+    if not identity then
+        return nil, err
+    end
+
+    local listings, exportErr = realEstateSafeExport('ListMyListings', source)
+    if type(listings) ~= 'table' then
+        return nil, exportErr or 'broker_required'
+    end
+
+    local out = {}
+    for _, listing in ipairs(listings) do
+        local normalized = normalizeRealEstateListing(listing, false)
+        if normalized then out[#out + 1] = normalized end
+        if #out >= 100 then break end
+    end
+
+    return out
+end
+
+function MZPhoneServer.Service.GetMyRealEstateListing(source, listingCode)
+    if not Security.RateLimit(source, 'realestate') then
+        return nil, 'rate_limited'
+    end
+
+    local identity, err = Security.RequireIdentity(source, { context = 'realestate_my_listing' })
+    if not identity then
+        return nil, err
+    end
+
+    listingCode = Security.SanitizeText(listingCode or '', 64)
+    if listingCode == '' then
+        return nil, 'invalid_listing'
+    end
+
+    local rawListing, exportErr = realEstateSafeExport('GetMyListingFromPhone', source, listingCode)
+    if type(rawListing) ~= 'table' then
+        return nil, exportErr or 'listing_not_found'
+    end
+
+    return normalizeRealEstateListing(rawListing, true)
+end
+
+function MZPhoneServer.Service.CreateRealEstateListing(source, data)
+    if not Security.RateLimit(source, 'realestate') then
+        return nil, 'rate_limited'
+    end
+
+    local identity, err = Security.RequireIdentity(source, { context = 'realestate_create' })
+    if not identity then
+        return nil, err
+    end
+
+    local ok, resultOrErr = realEstateSafeExport('CreateListingFromPhone', source, realEstatePhonePayload(data))
+    if ok ~= true then
+        return nil, resultOrErr or 'create_failed'
+    end
+
+    return resultOrErr or {}
+end
+
+function MZPhoneServer.Service.UpdateRealEstateListing(source, listingCode, data)
+    if not Security.RateLimit(source, 'realestate') then
+        return nil, 'rate_limited'
+    end
+
+    local identity, err = Security.RequireIdentity(source, { context = 'realestate_update' })
+    if not identity then
+        return nil, err
+    end
+
+    listingCode = Security.SanitizeText(listingCode or '', 64)
+    if listingCode == '' then
+        return nil, 'invalid_listing'
+    end
+
+    local ok, resultOrErr = realEstateSafeExport('UpdateListingFromPhone', source, listingCode, realEstatePhonePayload(data))
+    if ok ~= true then
+        return nil, resultOrErr or 'update_failed'
+    end
+
+    return resultOrErr or {}
+end
+
+function MZPhoneServer.Service.SetRealEstateListingStatus(source, listingCode, status)
+    if not Security.RateLimit(source, 'realestate') then
+        return nil, 'rate_limited'
+    end
+
+    local identity, err = Security.RequireIdentity(source, { context = 'realestate_status' })
+    if not identity then
+        return nil, err
+    end
+
+    listingCode = Security.SanitizeText(listingCode or '', 64)
+    status = Security.SanitizeText(status or '', 24)
+    if listingCode == '' then return nil, 'invalid_listing' end
+    if status ~= 'active' and status ~= 'paused' and status ~= 'archived' and status ~= 'deleted' then
+        return nil, 'invalid_status'
+    end
+
+    local ok, resultOrErr = realEstateSafeExport('SetListingStatusFromPhone', source, listingCode, status)
+    if ok ~= true then
+        return nil, resultOrErr or 'status_failed'
+    end
+
+    return resultOrErr or {}
+end
+
+function MZPhoneServer.Service.GetPhoneGalleryForRealEstate(source)
+    if not isGalleryEnabled() then
+        return {}, 'gallery_disabled'
+    end
+
+    if not Security.RateLimit(source, 'realestate') then
+        return nil, 'rate_limited'
+    end
+
+    local identity, err = Security.RequireIdentity(source, { context = 'realestate_gallery' })
+    if not identity then
+        return nil, err
+    end
+
+    return normalizeGalleryList(Repository.GetGalleryPhotos(identity.citizenid, galleryPageSize(), 0))
+end
+
+function MZPhoneServer.Service.GetRealEstateListingPhotos(source, listingCode)
+    if not Security.RateLimit(source, 'realestate') then
+        return nil, 'rate_limited'
+    end
+
+    local identity, err = Security.RequireIdentity(source, { context = 'realestate_listing_photos' })
+    if not identity then
+        return nil, err
+    end
+
+    listingCode = Security.SanitizeText(listingCode or '', 64)
+    if listingCode == '' then return nil, 'invalid_listing' end
+
+    local ok, resultOrErr = realEstateSafeExport('ListListingPhotosFromPhone', source, listingCode)
+    if ok ~= true then
+        return nil, resultOrErr or 'photo_list_failed'
+    end
+
+    return resultOrErr or {}
+end
+
+function MZPhoneServer.Service.AttachGalleryPhotoToRealEstateListing(source, listingCode, galleryPhotoId)
+    if not isGalleryEnabled() then return nil, 'gallery_disabled' end
+    if not Security.RateLimit(source, 'realestate') then return nil, 'rate_limited' end
+
+    local identity, err = Security.RequireIdentity(source, { context = 'realestate_attach_photo' })
+    if not identity then return nil, err end
+
+    listingCode = Security.SanitizeText(listingCode or '', 64)
+    if listingCode == '' then return nil, 'invalid_listing' end
+
+    galleryPhotoId = tonumber(galleryPhotoId)
+    if not galleryPhotoId then return nil, 'invalid_photo' end
+
+    local photo = Repository.GetGalleryPhotoById(galleryPhotoId)
+    if not photo or photo.deleted_at ~= nil then
+        Security.Log('realestate', source, ('gallery photo not found photo=%s'):format(tostring(galleryPhotoId)), true)
+        return nil, 'photo_not_found'
+    end
+
+    if photo.owner_citizenid ~= identity.citizenid then
+        Security.Log('security', source, ('tentou anexar foto de outro player photo=%s'):format(tostring(galleryPhotoId)), true)
+        return nil, 'photo_not_owned'
+    end
+
+    local okUrl, urlErr, imageUrl = validImageUrl(photo.image_url)
+    if not okUrl then
+        return nil, urlErr or 'invalid_image_url'
+    end
+
+    local ok, resultOrErr = realEstateSafeExport('AttachPhotoToListingFromPhone', source, listingCode, {
+        galleryPhotoId = galleryPhotoId,
+        imageUrl = imageUrl,
+        caption = photo.caption
+    })
+    if ok ~= true then
+        return nil, resultOrErr or 'photo_attach_failed'
+    end
+
+    return resultOrErr or {}
+end
+
+function MZPhoneServer.Service.SetRealEstateListingPrimaryPhoto(source, listingCode, photoId)
+    if not Security.RateLimit(source, 'realestate') then return nil, 'rate_limited' end
+
+    local identity, err = Security.RequireIdentity(source, { context = 'realestate_primary_photo' })
+    if not identity then return nil, err end
+
+    listingCode = Security.SanitizeText(listingCode or '', 64)
+    photoId = tonumber(photoId)
+    if listingCode == '' then return nil, 'invalid_listing' end
+    if not photoId then return nil, 'invalid_photo' end
+
+    local ok, resultOrErr = realEstateSafeExport('SetListingPrimaryPhotoFromPhone', source, listingCode, photoId)
+    if ok ~= true then
+        return nil, resultOrErr or 'photo_primary_failed'
+    end
+
+    return resultOrErr or {}
+end
+
+function MZPhoneServer.Service.RemoveRealEstateListingPhoto(source, listingCode, photoId)
+    if not Security.RateLimit(source, 'realestate') then return nil, 'rate_limited' end
+
+    local identity, err = Security.RequireIdentity(source, { context = 'realestate_remove_photo' })
+    if not identity then return nil, err end
+
+    listingCode = Security.SanitizeText(listingCode or '', 64)
+    photoId = tonumber(photoId)
+    if listingCode == '' then return nil, 'invalid_listing' end
+    if not photoId then return nil, 'invalid_photo' end
+
+    local ok, resultOrErr = realEstateSafeExport('RemoveListingPhotoFromPhone', source, listingCode, photoId)
+    if ok ~= true then
+        return nil, resultOrErr or 'photo_remove_failed'
+    end
+
+    return resultOrErr or {}
 end
 
 function MZPhoneServer.Service.Save(source, data)

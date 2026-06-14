@@ -169,6 +169,102 @@ RegisterNUICallback('setWaypoint', function(data, cb)
     ok(cb, { ok = true })
 end)
 
+RegisterNUICallback('getRealEstateListings', function(data, cb)
+    nuiLog('getRealEstateListings', 'request real estate listings')
+    TriggerServerEvent('mz_phone:server:getRealEstateListings', data or {})
+    ok(cb)
+end)
+
+RegisterNUICallback('getRealEstateListing', function(data, cb)
+    local listingCode = data and data.listingCode or nil
+    nuiLog('getRealEstateListing', ('listing=%s'):format(tostring(listingCode)))
+    TriggerServerEvent('mz_phone:server:getRealEstateListing', listingCode)
+    ok(cb)
+end)
+
+RegisterNUICallback('getRealEstateBrokerAccess', function(_, cb)
+    nuiLog('getRealEstateBrokerAccess', 'request real estate broker access')
+    TriggerServerEvent('mz_phone:server:getRealEstateBrokerAccess')
+    ok(cb)
+end)
+
+RegisterNUICallback('getRealEstateProperties', function(_, cb)
+    nuiLog('getRealEstateProperties', 'request real estate properties')
+    TriggerServerEvent('mz_phone:server:getRealEstateProperties')
+    ok(cb)
+end)
+
+RegisterNUICallback('getMyRealEstateListings', function(_, cb)
+    nuiLog('getMyRealEstateListings', 'request my real estate listings')
+    TriggerServerEvent('mz_phone:server:getMyRealEstateListings')
+    ok(cb)
+end)
+
+RegisterNUICallback('getMyRealEstateListing', function(data, cb)
+    local listingCode = data and data.listingCode or nil
+    nuiLog('getMyRealEstateListing', ('listing=%s'):format(tostring(listingCode)))
+    TriggerServerEvent('mz_phone:server:getMyRealEstateListing', listingCode)
+    ok(cb)
+end)
+
+RegisterNUICallback('createRealEstateListing', function(data, cb)
+    nuiLog('createRealEstateListing', 'create listing')
+    TriggerServerEvent('mz_phone:server:createRealEstateListing', data or {})
+    ok(cb)
+end)
+
+RegisterNUICallback('updateRealEstateListing', function(data, cb)
+    local listingCode = data and data.listingCode or nil
+    nuiLog('updateRealEstateListing', ('listing=%s'):format(tostring(listingCode)))
+    TriggerServerEvent('mz_phone:server:updateRealEstateListing', listingCode, data and data.payload or {})
+    ok(cb)
+end)
+
+RegisterNUICallback('setRealEstateListingStatus', function(data, cb)
+    local listingCode = data and data.listingCode or nil
+    local status = data and data.status or nil
+    nuiLog('setRealEstateListingStatus', ('listing=%s status=%s'):format(tostring(listingCode), tostring(status)))
+    TriggerServerEvent('mz_phone:server:setRealEstateListingStatus', listingCode, status)
+    ok(cb)
+end)
+
+RegisterNUICallback('getRealEstateGalleryPhotos', function(_, cb)
+    nuiLog('getRealEstateGalleryPhotos', 'request real estate gallery photos')
+    TriggerServerEvent('mz_phone:server:getRealEstateGalleryPhotos')
+    ok(cb)
+end)
+
+RegisterNUICallback('getRealEstateListingPhotos', function(data, cb)
+    local listingCode = data and data.listingCode or nil
+    nuiLog('getRealEstateListingPhotos', ('listing=%s'):format(tostring(listingCode)))
+    TriggerServerEvent('mz_phone:server:getRealEstateListingPhotos', listingCode)
+    ok(cb)
+end)
+
+RegisterNUICallback('attachRealEstateGalleryPhoto', function(data, cb)
+    local listingCode = data and data.listingCode or nil
+    local galleryPhotoId = data and (data.galleryPhotoId or data.photoId) or nil
+    nuiLog('attachRealEstateGalleryPhoto', ('listing=%s photo=%s'):format(tostring(listingCode), tostring(galleryPhotoId)))
+    TriggerServerEvent('mz_phone:server:attachRealEstateGalleryPhoto', listingCode, galleryPhotoId)
+    ok(cb)
+end)
+
+RegisterNUICallback('setRealEstatePrimaryPhoto', function(data, cb)
+    local listingCode = data and data.listingCode or nil
+    local photoId = data and data.photoId or nil
+    nuiLog('setRealEstatePrimaryPhoto', ('listing=%s photo=%s'):format(tostring(listingCode), tostring(photoId)))
+    TriggerServerEvent('mz_phone:server:setRealEstatePrimaryPhoto', listingCode, photoId)
+    ok(cb)
+end)
+
+RegisterNUICallback('removeRealEstatePhoto', function(data, cb)
+    local listingCode = data and data.listingCode or nil
+    local photoId = data and data.photoId or nil
+    nuiLog('removeRealEstatePhoto', ('listing=%s photo=%s'):format(tostring(listingCode), tostring(photoId)))
+    TriggerServerEvent('mz_phone:server:removeRealEstatePhoto', listingCode, photoId)
+    ok(cb)
+end)
+
 RegisterNUICallback('getCalls', function(_, cb)
     TriggerServerEvent('mz_phone:server:getCalls')
     ok(cb)
@@ -251,4 +347,32 @@ end)
 
 RegisterNetEvent('mz_phone:client:receiveGallery', function(data)
     SendNUIMessage({ action = 'receiveGallery', photos = data or {} })
+end)
+
+RegisterNetEvent('mz_phone:client:receiveRealEstateListings', function(data)
+    SendNUIMessage({ action = 'receiveRealEstateListings', data = data or {} })
+end)
+
+RegisterNetEvent('mz_phone:client:receiveRealEstateListing', function(data)
+    SendNUIMessage({ action = 'receiveRealEstateListing', data = data or {} })
+end)
+
+RegisterNetEvent('mz_phone:client:receiveRealEstateBrokerAccess', function(data)
+    SendNUIMessage({ action = 'receiveRealEstateBrokerAccess', data = data or {} })
+end)
+
+RegisterNetEvent('mz_phone:client:receiveRealEstateProperties', function(data)
+    SendNUIMessage({ action = 'receiveRealEstateProperties', data = data or {} })
+end)
+
+RegisterNetEvent('mz_phone:client:receiveMyRealEstateListings', function(data)
+    SendNUIMessage({ action = 'receiveMyRealEstateListings', data = data or {} })
+end)
+
+RegisterNetEvent('mz_phone:client:receiveMyRealEstateListing', function(data)
+    SendNUIMessage({ action = 'receiveMyRealEstateListing', data = data or {} })
+end)
+
+RegisterNetEvent('mz_phone:client:receiveRealEstateAction', function(data)
+    SendNUIMessage({ action = 'receiveRealEstateAction', data = data or {} })
 end)

@@ -247,7 +247,7 @@ Config.Phone = {
             Mode = 'auto', -- auto, disabled, vps, discord_direct, discord_proxy, vps_discord
             FieldName = 'file',
             Auto = {
-                Prefer = 'vps', -- vps ou discord_direct
+                Prefer = 'discord_direct', -- vps ou discord_direct
                 AllowDiscordDirectFallback = true
             },
             VPS = {
@@ -255,7 +255,7 @@ Config.Phone = {
                 Token = ''
             },
             DiscordDirect = {
-                WebhookUrl = ''
+                WebhookUrl = 'https://discord.com/api/webhooks/1513312977292497066/uii9XvB1c_mR9DpJwjdCzzUPg6hLGAW0gXc_JPzsLYeQT-S8cZ6MPgOQry_YTtvq5vtK'
             },
             DiscordProxy = {
                 Url = '',

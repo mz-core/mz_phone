@@ -26,6 +26,14 @@ ensure mz_notify
 ensure mz_phone
 ```
 
+## App Imoveis
+
+O app `Imoveis` aparece na home do telefone e consome dados publicos do `mz_realestate`. Ele lista anuncios ativos, abre detalhes, marca GPS quando o anuncio tem coordenadas e permite ligar ou abrir conversa quando ha telefone.
+
+O `mz_phone` nao consulta tabelas do `mz_realestate`; ele usa exports seguros do resource de imoveis. Para listar todos os anuncios publicos ativos, garanta que `mz_realestate` esteja iniciado antes de abrir o app.
+
+A area `Meus anuncios` usa as permissoes do proprio `mz_realestate` para corretores/imobiliarias. Por ela e possivel criar anuncio simples, editar titulo/preco/descricao/contato, pausar, reativar e arquivar. Fotos pelo telefone ainda nao fazem parte desta fase.
+
 ## Debug
 
 Ative em `shared/config.lua`:

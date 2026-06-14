@@ -5,6 +5,7 @@ MZPhoneApps = {
     { id = 'calls', label = 'Chamadas', enabled = true, order = 40 },
     { id = 'camera', label = 'Camera', enabled = true, order = 45 },
     { id = 'gallery', label = 'Galeria', enabled = true, order = 50 },
+    { id = 'realestate', label = 'Imoveis', enabled = true, order = 55 },
     { id = 'bank', label = 'Banco', enabled = false, order = 60 },
     { id = 'garage', label = 'Garagem', enabled = false, order = 70 }
 }

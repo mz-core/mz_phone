@@ -12,6 +12,13 @@ window.PhoneAPI = (() => {
     receiveContacts: [],
     receiveCalls: [],
     receiveGallery: [],
+    receiveRealEstateListings: [],
+    receiveRealEstateListing: [],
+    receiveRealEstateBrokerAccess: [],
+    receiveRealEstateProperties: [],
+    receiveMyRealEstateListings: [],
+    receiveMyRealEstateListing: [],
+    receiveRealEstateAction: [],
     notify: [],
     receiveConversations: [],
     receiveConversationMessages: [],
@@ -67,6 +74,27 @@ window.PhoneAPI = (() => {
     });
   }
 
+  function listFromPayload(payload, keys = []) {
+    if (Array.isArray(payload)) return payload;
+    if (!payload || typeof payload !== "object") return [];
+
+    for (const key of keys) {
+      if (Array.isArray(payload[key])) return payload[key];
+    }
+
+    if (payload.data && typeof payload.data === "object") {
+      const nested = listFromPayload(payload.data, keys);
+      if (nested.length) return nested;
+    }
+
+    if (payload.result && typeof payload.result === "object") {
+      const nested = listFromPayload(payload.result, keys);
+      if (nested.length) return nested;
+    }
+
+    return [];
+  }
+
   window.addEventListener("message", (event) => {
     const data = event.data || {};
     const action = data.action;
@@ -113,7 +141,35 @@ window.PhoneAPI = (() => {
     }
 
     if (action === "receiveGallery") {
-      emit("receiveGallery", data.photos || data.data || []);
+      emit("receiveGallery", listFromPayload(data, ["photos", "items", "gallery"]));
+    }
+
+    if (action === "receiveRealEstateListings") {
+      emit("receiveRealEstateListings", data.data || {});
+    }
+
+    if (action === "receiveRealEstateListing") {
+      emit("receiveRealEstateListing", data.data || {});
+    }
+
+    if (action === "receiveRealEstateBrokerAccess") {
+      emit("receiveRealEstateBrokerAccess", data.data || {});
+    }
+
+    if (action === "receiveRealEstateProperties") {
+      emit("receiveRealEstateProperties", data.data || {});
+    }
+
+    if (action === "receiveMyRealEstateListings") {
+      emit("receiveMyRealEstateListings", data.data || {});
+    }
+
+    if (action === "receiveMyRealEstateListing") {
+      emit("receiveMyRealEstateListing", data.data || {});
+    }
+
+    if (action === "receiveRealEstateAction") {
+      emit("receiveRealEstateAction", data.data || {});
     }
 
     if (action === "notify") {
@@ -452,6 +508,119 @@ window.PhoneAPI = (() => {
 
     async setWaypoint(data) {
       return await post("setWaypoint", data || {});
+    },
+
+    async getRealEstateListings(filters = {}) {
+      return await post("getRealEstateListings", filters || {});
+    },
+
+    async getRealEstateListing(listingCode) {
+      return await post("getRealEstateListing", { listingCode });
+    },
+
+    async getRealEstateBrokerAccess() {
+      return await post("getRealEstateBrokerAccess", {});
+    },
+
+    async getRealEstateProperties() {
+      return await post("getRealEstateProperties", {});
+    },
+
+    async getMyRealEstateListings() {
+      return await post("getMyRealEstateListings", {});
+    },
+
+    async getMyRealEstateListing(listingCode) {
+      return await post("getMyRealEstateListing", { listingCode });
+    },
+
+    async createRealEstateListing(payload) {
+      return await post("createRealEstateListing", payload || {});
+    },
+
+    async updateRealEstateListing(listingCode, payload) {
+      return await post("updateRealEstateListing", {
+        listingCode,
+        payload: payload || {},
+      });
+    },
+
+    async setRealEstateListingStatus(listingCode, status) {
+      return await post("setRealEstateListingStatus", {
+        listingCode,
+        status,
+      });
+    },
+
+    async getRealEstateGalleryPhotos() {
+      return await post("getRealEstateGalleryPhotos", {});
+    },
+
+    async getRealEstateListingPhotos(listingCode) {
+      return await post("getRealEstateListingPhotos", { listingCode });
+    },
+
+    async attachRealEstateGalleryPhoto(listingCode, galleryPhotoId) {
+      return await post("attachRealEstateGalleryPhoto", {
+        listingCode,
+        galleryPhotoId,
+      });
+    },
+
+    async setRealEstatePrimaryPhoto(listingCode, photoId) {
+      return await post("setRealEstatePrimaryPhoto", {
+        listingCode,
+        photoId,
+      });
+    },
+
+    async removeRealEstatePhoto(listingCode, photoId) {
+      return await post("removeRealEstatePhoto", {
+        listingCode,
+        photoId,
+      });
+    },
+
+    onReceiveRealEstateListings(callback) {
+      if (typeof callback === "function") {
+        listeners.receiveRealEstateListings.push(callback);
+      }
+    },
+
+    onReceiveRealEstateListing(callback) {
+      if (typeof callback === "function") {
+        listeners.receiveRealEstateListing.push(callback);
+      }
+    },
+
+    onReceiveRealEstateBrokerAccess(callback) {
+      if (typeof callback === "function") {
+        listeners.receiveRealEstateBrokerAccess.push(callback);
+      }
+    },
+
+    onReceiveRealEstateProperties(callback) {
+      if (typeof callback === "function") {
+        listeners.receiveRealEstateProperties.push(callback);
+      }
+    },
+
+    onReceiveMyRealEstateListings(callback) {
+      if (typeof callback === "function") {
+        listeners.receiveMyRealEstateListings.push(callback);
+      }
+    },
+
+    onReceiveMyRealEstateListing(callback) {
+      if (typeof callback === "function") {
+        listeners.receiveMyRealEstateListing.push(callback);
+      }
+    },
+
+    onReceiveRealEstateAction(callback) {
+      if (typeof callback === "function") {
+        listeners.receiveRealEstateAction.push(callback);
+      }
     },
 
     async markConversationRead(conversationId) {

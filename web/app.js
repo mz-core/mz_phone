@@ -67,6 +67,21 @@ const DEFAULT_PHONE_STATE = {
   dialerValue: "",
   gallery: [],
   gallerySelectedPhotoId: null,
+  realEstateListings: [],
+  realEstateSelectedListing: null,
+  realEstateMyListings: [],
+  realEstateProperties: [],
+  realEstateAccess: null,
+  realEstateView: "list",
+  realEstateTab: "all",
+  realEstateFormMode: "create",
+  realEstateForm: {},
+  realEstateActionBusy: false,
+  realEstatePhotoBusy: false,
+  realEstatePhotoPickerOpen: false,
+  realEstatePhotoPickerLoading: false,
+  realEstateLoading: false,
+  realEstateError: "",
   galleryPicker: false,
   cameraBusy: false,
   cameraError: "",
@@ -103,6 +118,7 @@ const DEFAULT_PHONE_STATE = {
 
 let phoneState = window.Utils.deepClone(DEFAULT_PHONE_STATE);
 let activeMediaRequest = null;
+let notificationPreviewTimer = null;
 
 window.PhoneAudio = window.PhoneAudio || {
   players: {},
@@ -157,41 +173,175 @@ function patchPhoneState(partial) {
   });
 }
 
+function listFromPayload(payload, keys = []) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== "object") return [];
+
+  for (const key of keys) {
+    if (Array.isArray(payload[key])) return payload[key];
+  }
+
+  if (payload.data && typeof payload.data === "object") {
+    const nested = listFromPayload(payload.data, keys);
+    if (nested.length) return nested;
+  }
+
+  if (payload.result && typeof payload.result === "object") {
+    const nested = listFromPayload(payload.result, keys);
+    if (nested.length) return nested;
+  }
+
+  return [];
+}
+
 function logNui(scope, message) {
   if (window.localStorage?.getItem("mzPhoneDebug") !== "1") return;
   console.debug(`[mz_phone][nui/${scope}] ${message}`);
 }
 
+function realEstateActionSuccessMessage(action) {
+  if (action === "create") return "Anuncio criado.";
+  if (action === "update") return "Anuncio atualizado.";
+  if (action === "status") return "Status atualizado.";
+  if (action === "photo_attach") return "Foto adicionada ao anuncio.";
+  if (action === "photo_primary") return "Foto principal atualizada.";
+  if (action === "photo_remove") return "Foto removida do anuncio.";
+  return "Acao concluida.";
+}
+
+function realEstateActionErrorMessage(error) {
+  if (error === "business_required" || error === "broker_required") {
+    return "Area disponivel apenas para corretores.";
+  }
+  if (error === "invalid_property" || error === "not_listable") {
+    return "Imovel indisponivel para anuncio.";
+  }
+  if (error === "invalid_title")
+    return "Informe um titulo com pelo menos 3 letras.";
+  if (error === "invalid_listing_type") return "Escolha venda ou aluguel.";
+  if (error === "invalid_status") return "Status invalido.";
+  if (error === "listing_not_found") return "Anuncio nao encontrado.";
+  if (error === "invalid_photo" || error === "photo_not_found")
+    return "Foto indisponivel.";
+  if (error === "photo_not_owned")
+    return "Esta foto nao pertence a sua galeria.";
+  if (error === "photo_limit_reached")
+    return "Limite de fotos atingido para este anuncio.";
+  if (error === "invalid_image_url" || error === "scheme_not_allowed")
+    return "Esta foto nao pode ser anexada.";
+  if (
+    error === "business_permission_required" ||
+    error === "permission_denied"
+  ) {
+    return "Voce nao pode alterar este anuncio.";
+  }
+  if (error === "realestate_unavailable")
+    return "Sistema de imoveis indisponivel.";
+  if (error === "rate_limited")
+    return "Aguarde um instante para tentar de novo.";
+  if (String(error || "").startsWith("listing_duplicate")) {
+    return "Este imovel ja possui anuncio ativo ou pausado.";
+  }
+  return "Nao foi possivel concluir a acao.";
+}
+
 function applyShellState() {
   if (!phoneShell) return;
 
-  const isOpen = phoneState.isOpen === true;
+  const isOpen = isPhoneActuallyOpen();
   const hasIncoming = Boolean(phoneState.incomingCall);
   const hasCallSession = Boolean(phoneState.callSession);
-  const isPeeking = Boolean(phoneState.notificationPreview);
+  const isPeeking = !isOpen && Boolean(phoneState.notificationPreview);
   const shouldShow = isOpen || hasIncoming || hasCallSession || isPeeking;
 
   phoneShell.style.display = shouldShow ? "flex" : "none";
   phoneShell.classList.toggle("phone-open", isOpen);
-  phoneShell.classList.toggle("phone-closed", !isOpen && !hasIncoming && !hasCallSession && !isPeeking);
-  phoneShell.classList.toggle("phone-peek", !isOpen && isPeeking && !hasIncoming && !hasCallSession);
+  phoneShell.classList.toggle(
+    "phone-closed",
+    !isOpen && !hasIncoming && !hasCallSession && !isPeeking,
+  );
+  phoneShell.classList.toggle(
+    "phone-peek",
+    !isOpen && isPeeking && !hasIncoming && !hasCallSession,
+  );
   phoneShell.classList.toggle("has-incoming-call", hasIncoming);
-  phoneShell.classList.toggle("has-active-call", !hasIncoming && hasCallSession);
+  phoneShell.classList.toggle(
+    "has-active-call",
+    !hasIncoming && hasCallSession,
+  );
+
+  document.body?.classList?.toggle("phone-open", isOpen);
+  document.body?.classList?.toggle(
+    "phone-closed",
+    !isOpen && !hasIncoming && !hasCallSession && !isPeeking,
+  );
+  document.body?.classList?.toggle(
+    "phone-peek",
+    !isOpen && isPeeking && !hasIncoming && !hasCallSession,
+  );
+}
+
+function isPhoneActuallyOpen() {
+  return phoneState.isOpen === true;
+}
+
+function maintainOpenIfAlreadyOpen(reason = "maintain_open_if_already_open") {
+  if (!isPhoneActuallyOpen()) return false;
+
+  clearNotificationPreview(reason);
+
+  document.body?.classList?.remove("phone-peek", "phone-closed");
+  document.body?.classList?.add("phone-open");
+
+  phoneShell?.classList?.remove("phone-peek", "phone-closed");
+  phoneShell?.classList?.add("phone-open");
+
+  applyShellState();
+  return true;
+}
+
+function clearNotificationPreview(reason = "clear") {
+  if (notificationPreviewTimer) {
+    clearTimeout(notificationPreviewTimer);
+    notificationPreviewTimer = null;
+  }
+
+  if (phoneState.notificationPreview) {
+    logNui("notify", `clear preview reason=${reason}`);
+  }
+
+  phoneState.notificationPreview = null;
+  applyShellState();
 }
 
 function showPhonePreview(duration = 3600) {
-  if (phoneState.isOpen || phoneState.incomingCall) {
-    applyShellState();
+  if (
+    isPhoneActuallyOpen() ||
+    phoneState.incomingCall ||
+    phoneState.callSession
+  ) {
+    clearNotificationPreview("phone_open_notification");
     return;
   }
 
   const previewId = Date.now();
+  if (notificationPreviewTimer) {
+    clearTimeout(notificationPreviewTimer);
+    notificationPreviewTimer = null;
+  }
+
   phoneState.notificationPreview = previewId;
   logNui("notify", "peek phone for notification");
   applyShellState();
 
-  setTimeout(() => {
+  notificationPreviewTimer = setTimeout(() => {
+    notificationPreviewTimer = null;
     if (phoneState.notificationPreview !== previewId) return;
+    if (isPhoneActuallyOpen()) {
+      clearNotificationPreview("phone_open_before_preview_timeout");
+      return;
+    }
+
     phoneState.notificationPreview = null;
     applyShellState();
   }, duration);
@@ -266,9 +416,7 @@ function getIncomingRingtoneOptions() {
     enabled,
     source: ringtone,
     volume:
-      typeof audio.ringtoneVolume === "number"
-        ? audio.ringtoneVolume
-        : 0.45,
+      typeof audio.ringtoneVolume === "number" ? audio.ringtoneVolume : 0.45,
   };
 }
 
@@ -424,7 +572,14 @@ function renderCurrentApp() {
 }
 
 function mediaPhotoUrl(photo) {
-  return photo?.image_url || photo?.imageUrl || photo?.url || photo?.thumbnail_url || photo?.thumbnailUrl || "";
+  return (
+    photo?.image_url ||
+    photo?.imageUrl ||
+    photo?.url ||
+    photo?.thumbnail_url ||
+    photo?.thumbnailUrl ||
+    ""
+  );
 }
 
 function normalizeMediaResult(photo, source = "gallery") {
@@ -433,7 +588,7 @@ function normalizeMediaResult(photo, source = "gallery") {
   if (!imageUrl) return null;
 
   return {
-    id: photo.id ?? null,
+    id: photo.id ?? photo.photoId ?? photo.photo_id ?? null,
     url: imageUrl,
     imageUrl,
     thumbnailUrl: photo.thumbnail_url || photo.thumbnailUrl || "",
@@ -464,6 +619,7 @@ function beginMediaRequest(kind, options = {}) {
     kind,
     purpose: options.purpose || "",
     returnApp: options.returnApp || phoneState.currentApp || null,
+    context: options.context && typeof options.context === "object" ? options.context : {},
     returnState: {
       ...mediaReturnState(),
       ...(options.returnState || {}),
@@ -493,6 +649,7 @@ function dispatchMediaResult(result, request) {
     settings: () => window.SettingsApp?.applyMediaResult?.(result, request),
     messages: () => window.MessagesApp?.applyMediaResult?.(result, request),
     contacts: () => window.ContactsApp?.applyMediaResult?.(result, request),
+    realestate: () => window.RealEstateApp?.applyMediaResult?.(result, request),
   };
 
   window.setTimeout(() => {
@@ -681,8 +838,7 @@ function handlePhoneOpen() {
   phoneState.messageDraft = "";
   phoneState.messagesDeepOpen = false;
 
-  phoneState.notificationPreview = null;
-  applyShellState();
+  clearNotificationPreview("phone_open");
 
   if (appScreen) appScreen.style.display = "none";
   if (homeScreen) homeScreen.style.display = "block";
@@ -707,7 +863,7 @@ function handlePhoneClose() {
   }
 
   phoneState.currentApp = null;
-  phoneState.notificationPreview = null;
+  clearNotificationPreview("phone_close");
 
   if (appScreen) appScreen.style.display = "none";
   if (homeScreen) homeScreen.style.display = "block";
@@ -880,9 +1036,215 @@ function bootPhone() {
 
   if (window.PhoneAPI?.onReceiveGallery) {
     window.PhoneAPI.onReceiveGallery((data) => {
-      phoneState.gallery = Array.isArray(data) ? data : [];
+      phoneState.gallery = listFromPayload(data, ["photos", "items", "gallery"]);
 
       if (phoneState.currentApp === "gallery") {
+        renderCurrentApp();
+      }
+    });
+  }
+
+  if (window.PhoneAPI?.onReceiveRealEstateListings) {
+    window.PhoneAPI.onReceiveRealEstateListings((payload) => {
+      const data = payload && typeof payload === "object" ? payload : {};
+
+      phoneState.realEstateListings = Array.isArray(data.listings)
+        ? data.listings
+        : [];
+      phoneState.realEstateLoading = false;
+      phoneState.realEstateError =
+        data.ok === false ? data.error || "unavailable" : "";
+
+      if (phoneState.currentApp === "realestate") {
+        renderCurrentApp();
+      }
+    });
+  }
+
+  if (window.PhoneAPI?.onReceiveRealEstateListing) {
+    window.PhoneAPI.onReceiveRealEstateListing((payload) => {
+      const data = payload && typeof payload === "object" ? payload : {};
+
+      phoneState.realEstateSelectedListing =
+        data.ok === false ? null : data.listing || null;
+      phoneState.realEstateLoading = false;
+      phoneState.realEstateError =
+        data.ok === false ? data.error || "unavailable" : "";
+
+      if (phoneState.currentApp === "realestate") {
+        renderCurrentApp();
+      }
+    });
+  }
+
+  if (window.PhoneAPI?.onReceiveRealEstateBrokerAccess) {
+    window.PhoneAPI.onReceiveRealEstateBrokerAccess((payload) => {
+      const data = payload && typeof payload === "object" ? payload : {};
+
+      phoneState.realEstateAccess =
+        data.ok === false
+          ? { allowed: false }
+          : data.access || { allowed: false };
+
+      if (phoneState.currentApp === "realestate") {
+        renderCurrentApp();
+      }
+    });
+  }
+
+  if (window.PhoneAPI?.onReceiveRealEstateProperties) {
+    window.PhoneAPI.onReceiveRealEstateProperties((payload) => {
+      const data = payload && typeof payload === "object" ? payload : {};
+
+      phoneState.realEstateProperties = Array.isArray(data.properties)
+        ? data.properties
+        : [];
+
+      if (phoneState.currentApp === "realestate") {
+        renderCurrentApp();
+      }
+    });
+  }
+
+  if (window.PhoneAPI?.onReceiveMyRealEstateListings) {
+    window.PhoneAPI.onReceiveMyRealEstateListings((payload) => {
+      const data = payload && typeof payload === "object" ? payload : {};
+
+      phoneState.realEstateMyListings = Array.isArray(data.listings)
+        ? data.listings
+        : [];
+      phoneState.realEstateLoading = false;
+      phoneState.realEstateError =
+        data.ok === false ? data.error || "broker_required" : "";
+
+      if (phoneState.currentApp === "realestate") {
+        renderCurrentApp();
+      }
+    });
+  }
+
+  if (window.PhoneAPI?.onReceiveMyRealEstateListing) {
+    window.PhoneAPI.onReceiveMyRealEstateListing((payload) => {
+      const data = payload && typeof payload === "object" ? payload : {};
+      const listing = data.ok === false ? null : data.listing || null;
+
+      phoneState.realEstateSelectedListing = listing;
+      phoneState.realEstateLoading = false;
+      phoneState.realEstateError =
+        data.ok === false ? data.error || "listing_not_found" : "";
+
+      if (listing && phoneState.realEstateView === "form") {
+        phoneState.realEstateForm = {
+          listingType: listing.listingType || "sale",
+          propertyCode: listing.propertyCode || "",
+          title: listing.title || "",
+          description: listing.description || "",
+          price: listing.price || "",
+          signPhone: listing.signPhone || listing.brokerPhone || "",
+          signBrokerName: listing.signBrokerName || listing.brokerName || "",
+          showSign: listing.showSign === true,
+        };
+      }
+
+      if (phoneState.currentApp === "realestate") {
+        renderCurrentApp();
+      }
+    });
+  }
+
+  if (window.PhoneAPI?.onReceiveRealEstateAction) {
+    window.PhoneAPI.onReceiveRealEstateAction((payload) => {
+      const data = payload && typeof payload === "object" ? payload : {};
+      const action = String(data.action || "");
+      const isPhotoAction =
+        action === "photo_attach" ||
+        action === "photo_primary" ||
+        action === "photo_remove" ||
+        action === "photos" ||
+        action === "gallery";
+      phoneState.realEstateActionBusy = false;
+      if (isPhotoAction) {
+        phoneState.realEstatePhotoBusy = false;
+      }
+      if (action === "gallery") {
+        phoneState.realEstatePhotoPickerLoading = false;
+      }
+
+      if (isPhoneActuallyOpen()) {
+        maintainOpenIfAlreadyOpen("realestate_action");
+      }
+
+      if (data.ok === false) {
+        window.PhoneUI?.notify?.({
+          type: "error",
+          title: "Imoveis",
+          message: realEstateActionErrorMessage(data.error),
+          preventPreview: true,
+          keepPhoneOpen: true,
+          scope: "in-app",
+        });
+      } else if (isPhotoAction) {
+        const result = data.result && typeof data.result === "object" ? data.result : {};
+        const listingCode =
+          result.listingCode || phoneState.realEstateSelectedListing?.listingCode || "";
+
+        if (action === "photos") {
+          phoneState.realEstateSelectedListing = {
+            ...(phoneState.realEstateSelectedListing || {}),
+            listingCode,
+            photos: Array.isArray(result.photos) ? result.photos : [],
+          };
+        } else if (action !== "gallery") {
+          phoneState.realEstatePhotoPickerOpen = false;
+
+          window.PhoneUI?.notify?.({
+            type: "success",
+            title: "Imoveis",
+            message: realEstateActionSuccessMessage(action),
+            preventPreview: true,
+            keepPhoneOpen: true,
+            scope: "in-app",
+          });
+
+          if (listingCode) {
+            window.PhoneAPI?.getMyRealEstateListing?.(listingCode);
+            window.PhoneAPI?.getRealEstateListingPhotos?.(listingCode);
+          }
+
+          window.PhoneAPI?.getMyRealEstateListings?.();
+          window.PhoneAPI?.getRealEstateListings?.({
+            listingType:
+              phoneState.realEstateTab === "sale"
+                ? "sale"
+                : phoneState.realEstateTab === "rent"
+                  ? "rent"
+                  : "",
+          });
+        }
+      } else {
+        phoneState.realEstateView = "mine";
+        phoneState.realEstateSelectedListing = null;
+        phoneState.realEstateForm = {};
+        phoneState.realEstateError = "";
+
+        window.PhoneUI?.notify?.({
+          type: "success",
+          title: "Imoveis",
+          message: realEstateActionSuccessMessage(action),
+        });
+
+        window.PhoneAPI?.getMyRealEstateListings?.();
+        window.PhoneAPI?.getRealEstateListings?.({
+          listingType:
+            phoneState.realEstateTab === "sale"
+              ? "sale"
+              : phoneState.realEstateTab === "rent"
+                ? "rent"
+                : "",
+        });
+      }
+
+      if (phoneState.currentApp === "realestate") {
         renderCurrentApp();
       }
     });
@@ -898,7 +1260,12 @@ function bootPhone() {
       );
 
       const displayName =
-        data.displayName || data.contactName || contact?.name || number || data.fallbackName || "Desconhecido";
+        data.displayName ||
+        data.contactName ||
+        contact?.name ||
+        number ||
+        data.fallbackName ||
+        "Desconhecido";
 
       window.PhoneApp.patchState({
         previousApp: phoneState.currentApp,
@@ -934,7 +1301,13 @@ function bootPhone() {
         callSession: {
           callId: data.callId,
           number,
-          name: data.displayName || data.contactName || contact?.name || number || data.fallbackName || "Desconhecido",
+          name:
+            data.displayName ||
+            data.contactName ||
+            contact?.name ||
+            number ||
+            data.fallbackName ||
+            "Desconhecido",
           state: "dialing",
           startedAt: null,
           duration: 0,
@@ -1386,7 +1759,11 @@ window.PhoneApp = {
   renderHome,
   applyTheme,
   applyShellState,
+  isActuallyOpen: isPhoneActuallyOpen,
   showNotificationPreview: showPhonePreview,
+  clearNotificationPreview,
+  maintainOpenIfAlreadyOpen,
+  enforceOpenPhoneState: maintainOpenIfAlreadyOpen,
 };
 
 bootPhone();

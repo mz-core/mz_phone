@@ -46,6 +46,13 @@ function getNotificationContainer() {
   return container;
 }
 
+function isPhoneOpenForNotification() {
+  const appOpen = window.PhoneApp?.isActuallyOpen?.() === true;
+  const stateOpen = window.PhoneApp?.getState?.()?.isOpen === true;
+
+  return appOpen || stateOpen;
+}
+
 window.PhoneUI.notify = function (payload = {}) {
   const container = getNotificationContainer();
   const meta = getNotificationMeta(payload);
@@ -93,7 +100,17 @@ window.PhoneUI.notify = function (payload = {}) {
 
   container.appendChild(el);
 
-  if (window.PhoneApp?.showNotificationPreview) {
+  const phoneOpen = isPhoneOpenForNotification();
+  const preventPreview = payload.preventPreview === true;
+  const keepPhoneOpen = payload.keepPhoneOpen === true;
+  const isInApp = payload.scope === "in-app" || preventPreview || keepPhoneOpen;
+
+  if (phoneOpen) {
+    window.PhoneApp?.clearNotificationPreview?.("notify_phone_open");
+    window.PhoneApp?.maintainOpenIfAlreadyOpen?.("notify_phone_open");
+  } else if (isInApp) {
+    window.PhoneApp?.clearNotificationPreview?.("notify_in_app_closed");
+  } else if (window.PhoneApp?.showNotificationPreview) {
     window.PhoneApp.showNotificationPreview(duration);
   }
 

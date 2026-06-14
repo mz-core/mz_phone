@@ -129,7 +129,7 @@ window.AppContract = {
       const list = Array.isArray(state.gallery) ? state.gallery : [];
 
       return list.map((photo) => ({
-        id: photo.id ?? window.Utils.uid(),
+        id: photo.id ?? photo.photoId ?? photo.photo_id ?? window.Utils.uid(),
         image_url: photo.image_url ?? photo.imageUrl ?? photo.url ?? "",
         thumbnail_url: photo.thumbnail_url ?? photo.thumbnailUrl ?? "",
         caption: photo.caption ?? "",
@@ -145,6 +145,55 @@ window.AppContract = {
         ...state,
         gallery: this.get({ gallery: photos }),
       };
+    },
+  },
+
+  realestate: {
+    getListings(state) {
+      return Array.isArray(state.realEstateListings)
+        ? state.realEstateListings
+        : [];
+    },
+
+    setListings(state, listings = []) {
+      return {
+        ...state,
+        realEstateListings: Array.isArray(listings) ? listings : [],
+        realEstateLoading: false,
+      };
+    },
+
+    getSelected(state) {
+      const selected = state.realEstateSelectedListing;
+      return selected && typeof selected === "object" ? selected : null;
+    },
+
+    setSelected(state, listing = null) {
+      return {
+        ...state,
+        realEstateSelectedListing:
+          listing && typeof listing === "object" ? listing : null,
+        realEstateLoading: false,
+      };
+    },
+
+    getMine(state) {
+      return Array.isArray(state.realEstateMyListings)
+        ? state.realEstateMyListings
+        : [];
+    },
+
+    getProperties(state) {
+      return Array.isArray(state.realEstateProperties)
+        ? state.realEstateProperties
+        : [];
+    },
+
+    getAccess(state) {
+      const access = state.realEstateAccess;
+      return access && typeof access === "object"
+        ? access
+        : { allowed: false };
     },
   },
 

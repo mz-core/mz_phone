@@ -190,6 +190,183 @@ RegisterNetEvent('mz_phone:server:toggleGalleryFavorite', function(photoId, favo
     end)
 end)
 
+RegisterNetEvent('mz_phone:server:getRealEstateListings', function(filters)
+    local src = source
+    runSafe('getRealEstateListings', src, function()
+        local listings, err = Service.GetRealEstateListings(src, filters or {})
+        TriggerClientEvent('mz_phone:client:receiveRealEstateListings', src, {
+            ok = listings ~= nil,
+            error = err,
+            listings = listings or {}
+        })
+    end)
+end)
+
+RegisterNetEvent('mz_phone:server:getRealEstateListing', function(listingCode)
+    local src = source
+    runSafe('getRealEstateListing', src, function()
+        local listing, err = Service.GetRealEstateListing(src, listingCode)
+        TriggerClientEvent('mz_phone:client:receiveRealEstateListing', src, {
+            ok = listing ~= nil,
+            error = err,
+            listing = listing
+        })
+    end)
+end)
+
+RegisterNetEvent('mz_phone:server:getRealEstateBrokerAccess', function()
+    local src = source
+    runSafe('getRealEstateBrokerAccess', src, function()
+        local access, err = Service.GetRealEstateBrokerAccess(src)
+        TriggerClientEvent('mz_phone:client:receiveRealEstateBrokerAccess', src, {
+            ok = access ~= nil,
+            error = err,
+            access = access
+        })
+    end)
+end)
+
+RegisterNetEvent('mz_phone:server:getRealEstateProperties', function()
+    local src = source
+    runSafe('getRealEstateProperties', src, function()
+        local properties, err = Service.GetRealEstateProperties(src)
+        TriggerClientEvent('mz_phone:client:receiveRealEstateProperties', src, {
+            ok = properties ~= nil,
+            error = err,
+            properties = properties or {}
+        })
+    end)
+end)
+
+RegisterNetEvent('mz_phone:server:getMyRealEstateListings', function()
+    local src = source
+    runSafe('getMyRealEstateListings', src, function()
+        local listings, err = Service.GetMyRealEstateListings(src)
+        TriggerClientEvent('mz_phone:client:receiveMyRealEstateListings', src, {
+            ok = listings ~= nil,
+            error = err,
+            listings = listings or {}
+        })
+    end)
+end)
+
+RegisterNetEvent('mz_phone:server:getMyRealEstateListing', function(listingCode)
+    local src = source
+    runSafe('getMyRealEstateListing', src, function()
+        local listing, err = Service.GetMyRealEstateListing(src, listingCode)
+        TriggerClientEvent('mz_phone:client:receiveMyRealEstateListing', src, {
+            ok = listing ~= nil,
+            error = err,
+            listing = listing
+        })
+    end)
+end)
+
+RegisterNetEvent('mz_phone:server:createRealEstateListing', function(data)
+    local src = source
+    runSafe('createRealEstateListing', src, function()
+        local result, err = Service.CreateRealEstateListing(src, data or {})
+        TriggerClientEvent('mz_phone:client:receiveRealEstateAction', src, {
+            ok = result ~= nil,
+            action = 'create',
+            error = err,
+            result = result
+        })
+    end)
+end)
+
+RegisterNetEvent('mz_phone:server:updateRealEstateListing', function(listingCode, data)
+    local src = source
+    runSafe('updateRealEstateListing', src, function()
+        local result, err = Service.UpdateRealEstateListing(src, listingCode, data or {})
+        TriggerClientEvent('mz_phone:client:receiveRealEstateAction', src, {
+            ok = result ~= nil,
+            action = 'update',
+            error = err,
+            result = result
+        })
+    end)
+end)
+
+RegisterNetEvent('mz_phone:server:setRealEstateListingStatus', function(listingCode, status)
+    local src = source
+    runSafe('setRealEstateListingStatus', src, function()
+        local result, err = Service.SetRealEstateListingStatus(src, listingCode, status)
+        TriggerClientEvent('mz_phone:client:receiveRealEstateAction', src, {
+            ok = result ~= nil,
+            action = 'status',
+            error = err,
+            result = result
+        })
+    end)
+end)
+
+RegisterNetEvent('mz_phone:server:getRealEstateGalleryPhotos', function()
+    local src = source
+    runSafe('getRealEstateGalleryPhotos', src, function()
+        local photos, err = Service.GetPhoneGalleryForRealEstate(src)
+        TriggerClientEvent('mz_phone:client:receiveGallery', src, photos or {})
+        TriggerClientEvent('mz_phone:client:receiveRealEstateAction', src, {
+            ok = photos ~= nil,
+            action = 'gallery',
+            error = err,
+            result = { photos = photos or {} }
+        })
+    end)
+end)
+
+RegisterNetEvent('mz_phone:server:getRealEstateListingPhotos', function(listingCode)
+    local src = source
+    runSafe('getRealEstateListingPhotos', src, function()
+        local result, err = Service.GetRealEstateListingPhotos(src, listingCode)
+        TriggerClientEvent('mz_phone:client:receiveRealEstateAction', src, {
+            ok = result ~= nil,
+            action = 'photos',
+            error = err,
+            result = result
+        })
+    end)
+end)
+
+RegisterNetEvent('mz_phone:server:attachRealEstateGalleryPhoto', function(listingCode, galleryPhotoId)
+    local src = source
+    runSafe('attachRealEstateGalleryPhoto', src, function()
+        local result, err = Service.AttachGalleryPhotoToRealEstateListing(src, listingCode, galleryPhotoId)
+        TriggerClientEvent('mz_phone:client:receiveRealEstateAction', src, {
+            ok = result ~= nil,
+            action = 'photo_attach',
+            error = err,
+            result = result
+        })
+    end)
+end)
+
+RegisterNetEvent('mz_phone:server:setRealEstatePrimaryPhoto', function(listingCode, photoId)
+    local src = source
+    runSafe('setRealEstatePrimaryPhoto', src, function()
+        local result, err = Service.SetRealEstateListingPrimaryPhoto(src, listingCode, photoId)
+        TriggerClientEvent('mz_phone:client:receiveRealEstateAction', src, {
+            ok = result ~= nil,
+            action = 'photo_primary',
+            error = err,
+            result = result
+        })
+    end)
+end)
+
+RegisterNetEvent('mz_phone:server:removeRealEstatePhoto', function(listingCode, photoId)
+    local src = source
+    runSafe('removeRealEstatePhoto', src, function()
+        local result, err = Service.RemoveRealEstateListingPhoto(src, listingCode, photoId)
+        TriggerClientEvent('mz_phone:client:receiveRealEstateAction', src, {
+            ok = result ~= nil,
+            action = 'photo_remove',
+            error = err,
+            result = result
+        })
+    end)
+end)
+
 RegisterNetEvent('mz_phone:server:saveCameraPhoto', function(requestId, imageUrl, metadata)
     local src = source
     local safeRequestId = tostring(requestId or '')
