@@ -407,6 +407,22 @@ local function realEstateSafeExport(name, ...)
     return result, extra
 end
 
+local function realEstatePhotoDebugEnabled()
+    return type(Config.Debug) == 'table' and Config.Debug.RealEstatePhotos == true
+end
+
+local function urlDebugSummary(value)
+    local text = tostring(value or '')
+    local scheme = text:match('^([%a][%w+%-%.]*):') or 'relative'
+    return ('scheme=%s len=%s'):format(tostring(scheme):lower(), tostring(#text))
+end
+
+local function realEstatePhotoDebug(source, message)
+    if realEstatePhotoDebugEnabled() then
+        Security.Log('realestate:photo', source, message, true)
+    end
+end
+
 local function normalizeRealEstateCoords(coords)
     if type(coords) ~= 'table' then return nil end
 
@@ -489,12 +505,18 @@ end
 local function normalizeRealEstateListing(listing, includeDetails)
     if type(listing) ~= 'table' then return nil end
 
-    local listingCode = Security.SanitizeText(listing.listingCode or listing.listing_code or '', 64)
+    local listingCode = Security.SanitizeText(listing.listingCode or listing.listing_code or listing.code or listing.id or '', 64)
     if listingCode == '' then return nil end
 
     local listingType = Security.SanitizeText(listing.listingType or listing.listing_type or '', 24)
     local price = compactNumber(listing.price)
     local photos, coverImage = normalizeRealEstatePhotos(listing.photos)
+    local explicitCover = sanitizeRealEstateImageUrl(
+        listing.coverImage or listing.cover_image or listing.coverUrl or listing.cover_url or ''
+    )
+    if explicitCover ~= '' then
+        coverImage = explicitCover
+    end
     local brokerName = Security.SanitizeText(listing.brokerName or listing.signBrokerName or listing.agencyName or '', 120)
     local brokerPhone = Security.SanitizeText(listing.brokerPhone or listing.signPhone or listing.agencyPhone or '', 40)
     local metadata = type(listing.metadata) == 'table' and listing.metadata or {}
@@ -1027,21 +1049,50 @@ function MZPhoneServer.Service.AttachGalleryPhotoToRealEstateListing(source, lis
     galleryPhotoId = tonumber(galleryPhotoId)
     if not galleryPhotoId then return nil, 'invalid_photo' end
 
+    realEstatePhotoDebug(source, ('request citizenid=%s listingCode=%s galleryPhotoId=%s'):format(
+        Security.Mask(identity.citizenid),
+        tostring(listingCode),
+        tostring(galleryPhotoId)
+    ))
+
     local photo = Repository.GetGalleryPhotoById(galleryPhotoId)
     if not photo or photo.deleted_at ~= nil then
         Security.Log('realestate', source, ('gallery photo not found photo=%s'):format(tostring(galleryPhotoId)), true)
+        realEstatePhotoDebug(source, ('gallery missing galleryPhotoId=%s'):format(tostring(galleryPhotoId)))
         return nil, 'photo_not_found'
     end
 
     if photo.owner_citizenid ~= identity.citizenid then
         Security.Log('security', source, ('tentou anexar foto de outro player photo=%s'):format(tostring(galleryPhotoId)), true)
+        realEstatePhotoDebug(source, ('owner mismatch galleryPhotoId=%s owner=%s citizenid=%s'):format(
+            tostring(galleryPhotoId),
+            Security.Mask(photo.owner_citizenid),
+            Security.Mask(identity.citizenid)
+        ))
         return nil, 'photo_not_owned'
     end
 
+    realEstatePhotoDebug(source, ('gallery found galleryPhotoId=%s owner=%s url=%s'):format(
+        tostring(galleryPhotoId),
+        Security.Mask(photo.owner_citizenid),
+        urlDebugSummary(photo.image_url)
+    ))
+
     local okUrl, urlErr, imageUrl = validImageUrl(photo.image_url)
     if not okUrl then
+        realEstatePhotoDebug(source, ('phone url rejected galleryPhotoId=%s error=%s url=%s'):format(
+            tostring(galleryPhotoId),
+            tostring(urlErr or 'invalid_image_url'),
+            urlDebugSummary(photo.image_url)
+        ))
         return nil, urlErr or 'invalid_image_url'
     end
+
+    realEstatePhotoDebug(source, ('calling export AttachPhotoToListingFromPhone listingCode=%s galleryPhotoId=%s url=%s'):format(
+        tostring(listingCode),
+        tostring(galleryPhotoId),
+        urlDebugSummary(imageUrl)
+    ))
 
     local ok, resultOrErr = realEstateSafeExport('AttachPhotoToListingFromPhone', source, listingCode, {
         galleryPhotoId = galleryPhotoId,
@@ -1049,8 +1100,21 @@ function MZPhoneServer.Service.AttachGalleryPhotoToRealEstateListing(source, lis
         caption = photo.caption
     })
     if ok ~= true then
+        realEstatePhotoDebug(source, ('export failed listingCode=%s galleryPhotoId=%s error=%s'):format(
+            tostring(listingCode),
+            tostring(galleryPhotoId),
+            tostring(resultOrErr or 'photo_attach_failed')
+        ))
         return nil, resultOrErr or 'photo_attach_failed'
     end
+
+    local resultPhoto = type(resultOrErr) == 'table' and resultOrErr.photo or nil
+    realEstatePhotoDebug(source, ('export ok listingCode=%s galleryPhotoId=%s realestatePhotoId=%s count=%s'):format(
+        tostring(listingCode),
+        tostring(galleryPhotoId),
+        tostring(type(resultPhoto) == 'table' and resultPhoto.id or ''),
+        tostring(type(resultOrErr) == 'table' and resultOrErr.count or '')
+    ))
 
     return resultOrErr or {}
 end

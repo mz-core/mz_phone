@@ -5,6 +5,7 @@ const homeIndicator = document.getElementById("homeIndicator");
 const statusClock = document.getElementById("statusClock");
 const phoneShell = document.getElementById("phoneShell");
 const callOverlay = document.getElementById("callOverlay");
+const phoneDialogRoot = document.getElementById("phoneDialogRoot");
 const cameraHud = document.getElementById("cameraHud");
 const cameraTransitionMask = document.getElementById("cameraTransitionMask");
 
@@ -12,6 +13,7 @@ const DEFAULT_PHONE_STATE = {
   isOpen: false,
   currentApp: null,
   appParams: {},
+  dialog: null,
 
   settingsView: "main",
   settingsModal: null,
@@ -119,6 +121,8 @@ const DEFAULT_PHONE_STATE = {
 let phoneState = window.Utils.deepClone(DEFAULT_PHONE_STATE);
 let activeMediaRequest = null;
 let notificationPreviewTimer = null;
+let dialogCounter = 0;
+const phoneDialogCallbacks = new Map();
 
 window.PhoneAudio = window.PhoneAudio || {
   players: {},
@@ -199,9 +203,124 @@ function logNui(scope, message) {
   console.debug(`[mz_phone][nui/${scope}] ${message}`);
 }
 
-function realEstateActionSuccessMessage(action) {
+function normalizeDialogTone(tone) {
+  if (tone === "danger" || tone === "warning" || tone === "success") {
+    return tone;
+  }
+
+  return "default";
+}
+
+function renderPhoneDialog() {
+  if (!phoneDialogRoot) return;
+
+  const dialog = phoneState.dialog;
+  if (!dialog) {
+    phoneDialogRoot.innerHTML = "";
+    phoneDialogRoot.style.display = "none";
+    return;
+  }
+
+  const tone = normalizeDialogTone(dialog.tone);
+  phoneDialogRoot.style.display = "block";
+  phoneDialogRoot.innerHTML = `
+    <div class="phone-dialog-backdrop" data-phone-dialog-action="cancel">
+      <div class="phone-dialog phone-dialog--${window.Utils.escapeHtmlAttr(tone)}" role="dialog" aria-modal="true" aria-labelledby="phone-dialog-title">
+        <div id="phone-dialog-title" class="phone-dialog__title">${window.Utils.escapeHtml(dialog.title || "Confirmar acao")}</div>
+        ${
+          dialog.message
+            ? `<div class="phone-dialog__message">${window.Utils.escapeHtml(dialog.message)}</div>`
+            : ""
+        }
+        <div class="phone-dialog__actions">
+          <button type="button" class="phone-dialog__button phone-dialog__button--cancel" data-phone-dialog-action="cancel">
+            ${window.Utils.escapeHtml(dialog.cancelText || "Cancelar")}
+          </button>
+          <button type="button" class="phone-dialog__button phone-dialog__button--confirm phone-dialog__button--${window.Utils.escapeHtmlAttr(tone)}" data-phone-dialog-action="confirm">
+            ${window.Utils.escapeHtml(dialog.confirmText || "Confirmar")}
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function closePhoneDialog(action = "cancel") {
+  const dialog = phoneState.dialog;
+  if (!dialog) return false;
+
+  const callbacks = phoneDialogCallbacks.get(dialog.id);
+  phoneDialogCallbacks.delete(dialog.id);
+  phoneState.dialog = null;
+  renderPhoneDialog();
+  maintainOpenIfAlreadyOpen(`phone_dialog_${action}`);
+
+  const confirmed = action === "confirm";
+  if (confirmed && typeof callbacks?.onConfirm === "function") {
+    callbacks.onConfirm();
+  }
+  if (!confirmed && typeof callbacks?.onCancel === "function") {
+    callbacks.onCancel();
+  }
+  if (typeof callbacks?.resolve === "function") {
+    callbacks.resolve(confirmed);
+  }
+
+  return true;
+}
+
+function openPhoneDialog(options = {}) {
+  const id = `dialog-${Date.now()}-${++dialogCounter}`;
+  const dialog = {
+    id,
+    type: options.type || "confirm",
+    title: options.title || "Confirmar acao",
+    message: options.message || "",
+    confirmText: options.confirmText || "Confirmar",
+    cancelText: options.cancelText || "Cancelar",
+    tone: normalizeDialogTone(options.tone),
+    app: options.app || phoneState.currentApp || null,
+  };
+
+  return new Promise((resolve) => {
+    phoneDialogCallbacks.set(id, {
+      onConfirm: options.onConfirm,
+      onCancel: options.onCancel,
+      resolve,
+    });
+
+    phoneState.dialog = dialog;
+    maintainOpenIfAlreadyOpen("phone_dialog_open");
+    renderPhoneDialog();
+  });
+}
+
+function hasOpenPhoneDialog() {
+  return Boolean(phoneState.dialog);
+}
+
+window.PhoneDialog = {
+  confirm(options = {}) {
+    return openPhoneDialog({ ...options, type: "confirm" });
+  },
+  cancel() {
+    return closePhoneDialog("cancel");
+  },
+  close() {
+    return closePhoneDialog("cancel");
+  },
+  isOpen: hasOpenPhoneDialog,
+};
+
+function realEstateActionSuccessMessage(action, result = {}) {
   if (action === "create") return "Anuncio criado.";
   if (action === "update") return "Anuncio atualizado.";
+  if (action === "status" && result?.status === "archived")
+    return "Anuncio removido da lista publica.";
+  if (action === "status" && result?.status === "paused")
+    return "Anuncio pausado.";
+  if (action === "status" && result?.status === "active")
+    return "Anuncio ativado.";
   if (action === "status") return "Status atualizado.";
   if (action === "photo_attach") return "Foto adicionada ao anuncio.";
   if (action === "photo_primary") return "Foto principal atualizada.";
@@ -221,14 +340,20 @@ function realEstateActionErrorMessage(error) {
   if (error === "invalid_listing_type") return "Escolha venda ou aluguel.";
   if (error === "invalid_status") return "Status invalido.";
   if (error === "listing_not_found") return "Anuncio nao encontrado.";
+  if (error === "listing_archived")
+    return "Este anuncio foi removido e nao aceita esta acao.";
   if (error === "invalid_photo" || error === "photo_not_found")
     return "Foto indisponivel.";
   if (error === "photo_not_owned")
     return "Esta foto nao pertence a sua galeria.";
   if (error === "photo_limit_reached")
     return "Limite de fotos atingido para este anuncio.";
-  if (error === "invalid_image_url" || error === "scheme_not_allowed")
-    return "Esta foto nao pode ser anexada.";
+  if (error === "invalid_image_url")
+    return "A URL da foto nao e valida.";
+  if (error === "scheme_not_allowed")
+    return "O formato da URL da foto nao e permitido.";
+  if (error === "photo_insert_failed")
+    return "Nao foi possivel salvar a foto no anuncio.";
   if (
     error === "business_permission_required" ||
     error === "permission_denied"
@@ -582,19 +707,40 @@ function mediaPhotoUrl(photo) {
   );
 }
 
+function mediaPhotoId(photo) {
+  const id =
+    photo?.galleryPhotoId ??
+    photo?.gallery_photo_id ??
+    photo?.id ??
+    photo?.photoId ??
+    photo?.photo_id ??
+    null;
+
+  if (id === "" || id === undefined || id === null) return null;
+  return id;
+}
+
 function normalizeMediaResult(photo, source = "gallery") {
   if (!photo || typeof photo !== "object") return null;
   const imageUrl = mediaPhotoUrl(photo);
   if (!imageUrl) return null;
+  const id = mediaPhotoId(photo);
 
   return {
-    id: photo.id ?? photo.photoId ?? photo.photo_id ?? null,
+    id,
+    galleryPhotoId: id,
     url: imageUrl,
     imageUrl,
-    thumbnailUrl: photo.thumbnail_url || photo.thumbnailUrl || "",
+    thumbnailUrl:
+      photo.thumbnail_url ||
+      photo.thumbnailUrl ||
+      photo.imageUrl ||
+      photo.image_url ||
+      imageUrl,
     caption: photo.caption || "",
     type: "image",
     source,
+    createdAt: photo.createdAt || photo.created_at || "",
   };
 }
 
@@ -615,10 +761,14 @@ function mediaReturnState() {
 }
 
 function beginMediaRequest(kind, options = {}) {
+  const returnTo =
+    options.returnTo || options.returnApp || phoneState.currentApp || null;
   const request = {
     kind,
     purpose: options.purpose || "",
-    returnApp: options.returnApp || phoneState.currentApp || null,
+    type: options.type || "image",
+    returnTo,
+    returnApp: returnTo,
     context: options.context && typeof options.context === "object" ? options.context : {},
     returnState: {
       ...mediaReturnState(),
@@ -634,6 +784,8 @@ function beginMediaRequest(kind, options = {}) {
     pendingMediaRequest: {
       kind: request.kind,
       purpose: request.purpose,
+      type: request.type,
+      returnTo: request.returnTo,
       returnApp: request.returnApp,
     },
     galleryPicker: kind === "gallery",
@@ -645,15 +797,21 @@ function beginMediaRequest(kind, options = {}) {
 
 function dispatchMediaResult(result, request) {
   if (!result || !request) return;
+  const returnTo = request.returnTo || request.returnApp;
   const handlerMap = {
     settings: () => window.SettingsApp?.applyMediaResult?.(result, request),
     messages: () => window.MessagesApp?.applyMediaResult?.(result, request),
     contacts: () => window.ContactsApp?.applyMediaResult?.(result, request),
-    realestate: () => window.RealEstateApp?.applyMediaResult?.(result, request),
+    realestate: () =>
+      window.RealEstateApp?.applyMediaResult?.(result, request.context, request),
   };
 
   window.setTimeout(() => {
-    const handled = handlerMap[request.returnApp]?.();
+    const consumer = window.PhoneMedia?.consumers?.[returnTo];
+    const handled =
+      typeof consumer?.applyMediaResult === "function"
+        ? consumer.applyMediaResult(result, request.context, request)
+        : handlerMap[returnTo]?.();
     if (handled === false || handled === undefined) {
       window.PhoneUI?.notify?.({
         type: "info",
@@ -670,8 +828,15 @@ function completeMediaRequest(photo, source = "gallery") {
   if (!request || !result) return;
 
   activeMediaRequest = null;
+  const returnState =
+    request.returnState && typeof request.returnState === "object"
+      ? request.returnState
+      : {};
+
   patchPhoneState({
-    ...(request.returnState || {}),
+    ...returnState,
+    isOpen: true,
+    notificationPreview: null,
     galleryPicker: false,
     gallerySelectedPhotoId: null,
     pendingMediaPurpose: "",
@@ -679,11 +844,24 @@ function completeMediaRequest(photo, source = "gallery") {
   });
 
   if (request.returnApp) {
-    window.openApp(request.returnApp, { skipMediaRequest: true });
+    window.openApp(request.returnApp, {
+      skipMediaRequest: true,
+      mediaContext: request.context || {},
+      mediaRequest: {
+        kind: request.kind,
+        purpose: request.purpose,
+        type: request.type,
+        returnTo: request.returnTo,
+        returnApp: request.returnApp,
+      },
+      mediaResult: result,
+    });
   } else {
     window.goHome();
   }
 
+  maintainOpenIfAlreadyOpen("media_result_complete");
+  applyShellState();
   dispatchMediaResult(result, request);
 }
 
@@ -692,8 +870,15 @@ function cancelMediaRequest() {
   if (!request) return;
 
   activeMediaRequest = null;
+  const returnState =
+    request.returnState && typeof request.returnState === "object"
+      ? request.returnState
+      : {};
+
   patchPhoneState({
-    ...(request.returnState || {}),
+    ...returnState,
+    isOpen: true,
+    notificationPreview: null,
     galleryPicker: false,
     gallerySelectedPhotoId: null,
     pendingMediaPurpose: "",
@@ -701,13 +886,28 @@ function cancelMediaRequest() {
   });
 
   if (request.returnApp) {
-    window.openApp(request.returnApp, { skipMediaRequest: true });
+    window.openApp(request.returnApp, {
+      skipMediaRequest: true,
+      mediaContext: request.context || {},
+      mediaRequest: {
+        kind: request.kind,
+        purpose: request.purpose,
+        type: request.type,
+        returnTo: request.returnTo,
+        returnApp: request.returnApp,
+      },
+    });
   } else {
     window.goHome();
   }
+
+  maintainOpenIfAlreadyOpen("media_result_cancel");
+  applyShellState();
 }
 
 window.PhoneMedia = {
+  consumers: {},
+
   openGalleryForResult(options = {}) {
     beginMediaRequest("gallery", options);
     window.openApp("gallery", { picker: true });
@@ -752,6 +952,8 @@ window.openApp = function (appId, params = {}) {
 };
 
 window.goHome = function () {
+  if (closePhoneDialog("cancel")) return;
+
   const currentAppId = phoneState.currentApp;
 
   if (currentAppId) {
@@ -812,6 +1014,8 @@ function handlePhoneOpen() {
   phoneState.isOpen = true;
 
   phoneState.currentApp = null;
+  phoneState.dialog = null;
+  phoneDialogCallbacks.clear();
 
   phoneState.settingsView = "main";
   phoneState.settingsModal = null;
@@ -850,6 +1054,8 @@ function handlePhoneOpen() {
 }
 
 function handlePhoneClose() {
+  if (closePhoneDialog("cancel")) return;
+
   phoneState.isOpen = false;
   window.PhoneAudio?.stopAll();
   setCameraTransitionMask(false, { instant: true });
@@ -989,9 +1195,37 @@ function bootPhone() {
 
   if (homeIndicator) {
     homeIndicator.addEventListener("click", () => {
+      if (closePhoneDialog("cancel")) return;
       window.goHome();
     });
   }
+
+  if (phoneDialogRoot) {
+    phoneDialogRoot.addEventListener("click", (event) => {
+      const actionTarget = event.target?.closest?.(
+        "[data-phone-dialog-action]",
+      );
+      const isInsideDialog = Boolean(event.target?.closest?.(".phone-dialog"));
+      if (isInsideDialog && !event.target?.closest?.(".phone-dialog__button")) {
+        return;
+      }
+
+      const action = actionTarget?.dataset?.phoneDialogAction;
+      if (!action) return;
+      event.preventDefault();
+      event.stopPropagation();
+      closePhoneDialog(action === "confirm" ? "confirm" : "cancel");
+    });
+  }
+
+  window.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (!hasOpenPhoneDialog()) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    closePhoneDialog("cancel");
+  });
 
   if (window.PhoneAPI?.onOpen) {
     window.PhoneAPI.onOpen(() => {
@@ -1048,9 +1282,10 @@ function bootPhone() {
     window.PhoneAPI.onReceiveRealEstateListings((payload) => {
       const data = payload && typeof payload === "object" ? payload : {};
 
-      phoneState.realEstateListings = Array.isArray(data.listings)
-        ? data.listings
-        : [];
+      phoneState = window.AppContract.realestate.setListings(
+        phoneState,
+        Array.isArray(data.listings) ? data.listings : [],
+      );
       phoneState.realEstateLoading = false;
       phoneState.realEstateError =
         data.ok === false ? data.error || "unavailable" : "";
@@ -1065,8 +1300,10 @@ function bootPhone() {
     window.PhoneAPI.onReceiveRealEstateListing((payload) => {
       const data = payload && typeof payload === "object" ? payload : {};
 
-      phoneState.realEstateSelectedListing =
-        data.ok === false ? null : data.listing || null;
+      phoneState = window.AppContract.realestate.setSelected(
+        phoneState,
+        data.ok === false ? null : data.listing || null,
+      );
       phoneState.realEstateLoading = false;
       phoneState.realEstateError =
         data.ok === false ? data.error || "unavailable" : "";
@@ -1110,9 +1347,15 @@ function bootPhone() {
     window.PhoneAPI.onReceiveMyRealEstateListings((payload) => {
       const data = payload && typeof payload === "object" ? payload : {};
 
-      phoneState.realEstateMyListings = Array.isArray(data.listings)
+      phoneState.realEstateMyListings = (Array.isArray(data.listings)
         ? data.listings
-        : [];
+        : []
+      )
+        .map((listing) =>
+          window.AppContract.realestate.setSelected({}, listing)
+            .realEstateSelectedListing,
+        )
+        .filter(Boolean);
       phoneState.realEstateLoading = false;
       phoneState.realEstateError =
         data.ok === false ? data.error || "broker_required" : "";
@@ -1126,7 +1369,11 @@ function bootPhone() {
   if (window.PhoneAPI?.onReceiveMyRealEstateListing) {
     window.PhoneAPI.onReceiveMyRealEstateListing((payload) => {
       const data = payload && typeof payload === "object" ? payload : {};
-      const listing = data.ok === false ? null : data.listing || null;
+      const listing =
+        window.AppContract.realestate.setSelected(
+          {},
+          data.ok === false ? null : data.listing || null,
+        ).realEstateSelectedListing || null;
 
       phoneState.realEstateSelectedListing = listing;
       phoneState.realEstateLoading = false;
@@ -1156,6 +1403,7 @@ function bootPhone() {
     window.PhoneAPI.onReceiveRealEstateAction((payload) => {
       const data = payload && typeof payload === "object" ? payload : {};
       const action = String(data.action || "");
+      const result = data.result && typeof data.result === "object" ? data.result : {};
       const isPhotoAction =
         action === "photo_attach" ||
         action === "photo_primary" ||
@@ -1184,7 +1432,6 @@ function bootPhone() {
           scope: "in-app",
         });
       } else if (isPhotoAction) {
-        const result = data.result && typeof data.result === "object" ? data.result : {};
         const listingCode =
           result.listingCode || phoneState.realEstateSelectedListing?.listingCode || "";
 
@@ -1192,7 +1439,14 @@ function bootPhone() {
           phoneState.realEstateSelectedListing = {
             ...(phoneState.realEstateSelectedListing || {}),
             listingCode,
-            photos: Array.isArray(result.photos) ? result.photos : [],
+            photos: (Array.isArray(result.photos) ? result.photos : [])
+              .map((photo) =>
+                window.AppContract.realestate.setSelected(
+                  {},
+                  { listingCode, photos: [photo] },
+                ).realEstateSelectedListing?.photos?.[0],
+              )
+              .filter(Boolean),
           };
         } else if (action !== "gallery") {
           phoneState.realEstatePhotoPickerOpen = false;
@@ -1200,7 +1454,7 @@ function bootPhone() {
           window.PhoneUI?.notify?.({
             type: "success",
             title: "Imoveis",
-            message: realEstateActionSuccessMessage(action),
+            message: realEstateActionSuccessMessage(action, result),
             preventPreview: true,
             keepPhoneOpen: true,
             scope: "in-app",
@@ -1230,7 +1484,10 @@ function bootPhone() {
         window.PhoneUI?.notify?.({
           type: "success",
           title: "Imoveis",
-          message: realEstateActionSuccessMessage(action),
+          message: realEstateActionSuccessMessage(action, result),
+          preventPreview: true,
+          keepPhoneOpen: true,
+          scope: "in-app",
         });
 
         window.PhoneAPI?.getMyRealEstateListings?.();

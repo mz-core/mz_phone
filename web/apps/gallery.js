@@ -23,7 +23,9 @@ registerApp({
     const photos = window.AppContract.gallery.get(state);
     const isPicker = Boolean(state.galleryPicker);
     const selectedId = state.gallerySelectedPhotoId;
-    const selected = photos.find((photo) => String(photo.id) === String(selectedId));
+    const selected = photos.find(
+      (photo) => galleryPhotoId(photo) === String(selectedId),
+    );
 
     if (selected) {
       return renderGalleryViewer(selected, isPicker);
@@ -34,7 +36,19 @@ registerApp({
 });
 
 function galleryPhotoUrl(photo) {
-  return photo.thumbnail_url || photo.image_url || "";
+  return photo.thumbnailUrl || photo.thumbnail_url || photo.imageUrl || photo.image_url || "";
+}
+
+function galleryPhotoId(photo) {
+  const id =
+    photo?.galleryPhotoId ??
+    photo?.gallery_photo_id ??
+    photo?.id ??
+    photo?.photoId ??
+    photo?.photo_id ??
+    "";
+
+  return id === null || id === undefined ? "" : String(id);
 }
 
 function galleryDate(value) {
@@ -105,9 +119,14 @@ function renderGalleryGrid(photos, isPicker = false) {
 function renderGalleryTile(photo, isPicker = false) {
   const image = galleryPhotoUrl(photo);
   const caption = photo.caption || galleryDate(photo.created_at) || "Foto";
+  const photoId = galleryPhotoId(photo);
+  const disabled = isPicker && !photoId;
+  const action = isPicker
+    ? `window.GalleryApp.selectPhoto('${window.Utils.escapeHtmlAttr(photoId)}')`
+    : `window.GalleryApp.openPhoto('${window.Utils.escapeHtmlAttr(photoId)}')`;
 
   return `
-    <button class="gallery-tile" onclick="${isPicker ? `window.GalleryApp.selectPhoto('${String(photo.id)}')` : `window.GalleryApp.openPhoto('${String(photo.id)}')`}">
+    <button class="gallery-tile ${disabled ? "is-disabled" : ""}" onclick="${action}" ${disabled ? "aria-disabled=\"true\"" : ""}>
       ${
         image
           ? `<img src="${window.Utils.escapeHtml(image)}" alt="${window.Utils.escapeHtml(caption)}" loading="lazy" />`
@@ -120,8 +139,9 @@ function renderGalleryTile(photo, isPicker = false) {
 }
 
 function renderGalleryViewer(photo, isPicker = false) {
-  const image = photo.image_url || photo.thumbnail_url || "";
+  const image = photo.imageUrl || photo.image_url || photo.thumbnailUrl || photo.thumbnail_url || "";
   const title = photo.caption || "Foto";
+  const photoId = galleryPhotoId(photo);
 
   return `
     <div class="app-page gallery-page gallery-viewer-page">
@@ -141,7 +161,7 @@ function renderGalleryViewer(photo, isPicker = false) {
             isPicker
               ? ""
               : `
-                <button class="app-header-icon-btn" onclick="window.GalleryApp.toggleFavorite('${String(photo.id)}')" aria-label="Favorito">
+                <button class="app-header-icon-btn" onclick="window.GalleryApp.toggleFavorite('${window.Utils.escapeHtmlAttr(photoId)}')" aria-label="Favorito">
                   <i data-lucide="${photo.favorite ? "star" : "star-off"}"></i>
                 </button>
               `
@@ -166,13 +186,13 @@ function renderGalleryViewer(photo, isPicker = false) {
         ${
           isPicker
             ? `
-              <button class="gallery-delete-btn" onclick="window.GalleryApp.selectPhoto('${String(photo.id)}')">
+              <button class="gallery-delete-btn" onclick="window.GalleryApp.selectPhoto('${window.Utils.escapeHtmlAttr(photoId)}')">
                 <i data-lucide="check"></i>
                 <span>Usar esta foto</span>
               </button>
             `
             : `
-              <button class="gallery-delete-btn" onclick="window.GalleryApp.deletePhoto('${String(photo.id)}')">
+              <button class="gallery-delete-btn" onclick="window.GalleryApp.deletePhoto('${window.Utils.escapeHtmlAttr(photoId)}')">
                 <i data-lucide="trash-2"></i>
                 <span>Excluir foto</span>
               </button>
@@ -191,6 +211,8 @@ window.GalleryApp = {
   },
 
   openPhoto(photoId) {
+    if (!photoId) return;
+
     window.PhoneApp.patchState({
       gallerySelectedPhotoId: photoId,
     });
@@ -198,10 +220,34 @@ window.GalleryApp = {
   },
 
   selectPhoto(photoId) {
+    if (!photoId) {
+      window.PhoneUI?.notify?.({
+        type: "warning",
+        title: "Galeria",
+        message: "Foto indisponivel para selecao.",
+        preventPreview: true,
+        keepPhoneOpen: true,
+        scope: "in-app",
+      });
+      return;
+    }
+
     const state = window.PhoneApp.getState();
     const photos = window.AppContract.gallery.get(state);
-    const photo = photos.find((item) => String(item.id) === String(photoId));
-    if (!photo) return;
+    const photo = photos.find(
+      (item) => galleryPhotoId(item) === String(photoId),
+    );
+    if (!photo) {
+      window.PhoneUI?.notify?.({
+        type: "warning",
+        title: "Galeria",
+        message: "Foto nao encontrada.",
+        preventPreview: true,
+        keepPhoneOpen: true,
+        scope: "in-app",
+      });
+      return;
+    }
 
     if (state.galleryPicker && window.PhoneMedia?.complete) {
       window.PhoneMedia.complete(photo, "gallery");
@@ -239,7 +285,7 @@ window.GalleryApp = {
   async toggleFavorite(photoId) {
     const state = window.PhoneApp.getState();
     const photos = window.AppContract.gallery.get(state);
-    const photo = photos.find((item) => String(item.id) === String(photoId));
+    const photo = photos.find((item) => galleryPhotoId(item) === String(photoId));
     if (!photo || !window.PhoneAPI?.toggleGalleryFavorite) return;
 
     await window.PhoneAPI.toggleGalleryFavorite(photoId, !photo.favorite);

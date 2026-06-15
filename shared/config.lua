@@ -5,6 +5,7 @@ Config.Debug = {
     PrintServer = true,
     PrintClient = true,
     NuiMessages = false,
+    RealEstatePhotos = false,
     AllowCommand = true,
     AdminPermission = 'mz_phone.debug'
 }

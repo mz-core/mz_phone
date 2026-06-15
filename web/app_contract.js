@@ -1,3 +1,105 @@
+function realEstateContractText(value, fallback = "") {
+  const text = String(value ?? "").trim();
+  return text || fallback;
+}
+
+function realEstateContractPhotoUrl(photo) {
+  return realEstateContractText(
+    photo?.imageUrl ??
+      photo?.image_url ??
+      photo?.url ??
+      photo?.thumbnailUrl ??
+      photo?.thumbnail_url ??
+      "",
+  );
+}
+
+function normalizeRealEstateContractPhoto(photo) {
+  if (!photo || typeof photo !== "object") return null;
+
+  const imageUrl = realEstateContractPhotoUrl(photo);
+  const thumbnailUrl = realEstateContractText(
+    photo.thumbnailUrl ?? photo.thumbnail_url ?? imageUrl,
+  );
+
+  return {
+    ...photo,
+    id: photo.id ?? photo.photoId ?? photo.photo_id ?? null,
+    imageUrl,
+    image_url: imageUrl,
+    thumbnailUrl,
+    thumbnail_url: thumbnailUrl,
+    caption: realEstateContractText(photo.caption),
+    isPrimary:
+      photo.isPrimary === true ||
+      photo.is_primary === true ||
+      photo.is_primary === 1 ||
+      photo.is_primary === "1",
+    sortOrder: Number(photo.sortOrder ?? photo.sort_order ?? 0) || 0,
+    createdAt: photo.createdAt ?? photo.created_at ?? "",
+  };
+}
+
+function normalizeRealEstateContractListing(listing) {
+  if (!listing || typeof listing !== "object") return null;
+
+  const photos = Array.isArray(listing.photos)
+    ? listing.photos.map(normalizeRealEstateContractPhoto).filter(Boolean)
+    : [];
+  const primaryPhoto = photos.find((photo) => photo.isPrimary);
+  const coverImage = realEstateContractText(
+    listing.coverImage ??
+      listing.cover_image ??
+      listing.coverUrl ??
+      listing.cover_url ??
+      primaryPhoto?.imageUrl ??
+      photos[0]?.imageUrl ??
+      "",
+  );
+  const listingCode = realEstateContractText(
+    listing.listingCode ?? listing.listing_code ?? listing.code ?? listing.id,
+  );
+
+  return {
+    ...listing,
+    listingCode,
+    listing_code: listing.listing_code ?? listingCode,
+    title: realEstateContractText(listing.title, "Imovel sem titulo"),
+    description: realEstateContractText(
+      listing.description,
+      "Descricao indisponivel",
+    ),
+    listingType: realEstateContractText(
+      listing.listingType ?? listing.listing_type,
+    ),
+    typeLabel: realEstateContractText(listing.typeLabel ?? listing.type_label),
+    formattedPrice: realEstateContractText(
+      listing.formattedPrice ?? listing.priceText ?? listing.price_text,
+      "Sob consulta",
+    ),
+    coverImage,
+    coverUrl: coverImage,
+    photos,
+    brokerName: realEstateContractText(
+      listing.brokerName ?? listing.broker_name ?? listing.signBrokerName,
+    ),
+    brokerPhone: realEstateContractText(
+      listing.brokerPhone ?? listing.broker_phone ?? listing.signPhone,
+    ),
+    agencyName: realEstateContractText(listing.agencyName ?? listing.agency_name),
+    agencyPhone: realEstateContractText(
+      listing.agencyPhone ?? listing.agency_phone,
+    ),
+    propertyCode: realEstateContractText(
+      listing.propertyCode ?? listing.property_code,
+    ),
+    propertyLabel: realEstateContractText(
+      listing.propertyLabel ?? listing.property_label ?? listing.property?.label,
+    ),
+    status: realEstateContractText(listing.status, "active"),
+  };
+}
+
 window.AppContract = {
   settings: {
     get(state) {
@@ -128,16 +230,36 @@ window.AppContract = {
     get(state) {
       const list = Array.isArray(state.gallery) ? state.gallery : [];
 
-      return list.map((photo) => ({
-        id: photo.id ?? photo.photoId ?? photo.photo_id ?? window.Utils.uid(),
-        image_url: photo.image_url ?? photo.imageUrl ?? photo.url ?? "",
-        thumbnail_url: photo.thumbnail_url ?? photo.thumbnailUrl ?? "",
-        caption: photo.caption ?? "",
-        source: photo.source ?? "manual",
-        favorite: photo.favorite === true || photo.favorite === 1,
-        created_at: photo.created_at ?? photo.createdAt ?? "",
-        metadata: photo.metadata && typeof photo.metadata === "object" ? photo.metadata : {},
-      }));
+      return list.map((photo) => {
+        const id =
+          photo.id ??
+          photo.galleryPhotoId ??
+          photo.gallery_photo_id ??
+          photo.photoId ??
+          photo.photo_id ??
+          null;
+        const imageUrl = photo.image_url ?? photo.imageUrl ?? photo.url ?? "";
+        const thumbnailUrl =
+          photo.thumbnail_url ?? photo.thumbnailUrl ?? imageUrl ?? "";
+
+        return {
+          id,
+          galleryPhotoId: id,
+          image_url: imageUrl,
+          imageUrl,
+          thumbnail_url: thumbnailUrl,
+          thumbnailUrl,
+          caption: photo.caption ?? "",
+          source: photo.source ?? "manual",
+          favorite: photo.favorite === true || photo.favorite === 1,
+          created_at: photo.created_at ?? photo.createdAt ?? "",
+          createdAt: photo.createdAt ?? photo.created_at ?? "",
+          metadata:
+            photo.metadata && typeof photo.metadata === "object"
+              ? photo.metadata
+              : {},
+        };
+      });
     },
 
     set(state, photos = []) {
@@ -150,37 +272,44 @@ window.AppContract = {
 
   realestate: {
     getListings(state) {
-      return Array.isArray(state.realEstateListings)
+      return (Array.isArray(state.realEstateListings)
         ? state.realEstateListings
-        : [];
+        : []
+      )
+        .map(normalizeRealEstateContractListing)
+        .filter(Boolean);
     },
 
     setListings(state, listings = []) {
       return {
         ...state,
-        realEstateListings: Array.isArray(listings) ? listings : [],
+        realEstateListings: (Array.isArray(listings) ? listings : [])
+          .map(normalizeRealEstateContractListing)
+          .filter(Boolean),
         realEstateLoading: false,
       };
     },
 
     getSelected(state) {
       const selected = state.realEstateSelectedListing;
-      return selected && typeof selected === "object" ? selected : null;
+      return normalizeRealEstateContractListing(selected);
     },
 
     setSelected(state, listing = null) {
       return {
         ...state,
-        realEstateSelectedListing:
-          listing && typeof listing === "object" ? listing : null,
+        realEstateSelectedListing: normalizeRealEstateContractListing(listing),
         realEstateLoading: false,
       };
     },
 
     getMine(state) {
-      return Array.isArray(state.realEstateMyListings)
+      return (Array.isArray(state.realEstateMyListings)
         ? state.realEstateMyListings
-        : [];
+        : []
+      )
+        .map(normalizeRealEstateContractListing)
+        .filter(Boolean);
     },
 
     getProperties(state) {

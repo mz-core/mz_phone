@@ -87,7 +87,7 @@ function realEstateLocationLine(listing) {
   if (neighborhood && city) return `${neighborhood}, ${city}`;
   if (neighborhood) return neighborhood;
   if (city) return city;
-  return address;
+  return address || "Endereco nao informado";
 }
 
 function realEstateAccessAllowed(state) {
@@ -200,10 +200,13 @@ function renderRealEstateCard(listing) {
   const title = realEstateSafeText(listing.title, "Imovel anunciado");
   const location = realEstateLocationLine(listing);
   const typeLabel = realEstateTypeLabel(listing.listingType, listing.typeLabel);
-  const code = window.Utils.escapeHtmlAttr(listing.listingCode || "");
+  const code = window.Utils.escapeHtmlAttr(listingCodeFrom(listing));
+  const clickAction = code
+    ? `window.RealEstateApp.openListing('${code}')`
+    : "window.RealEstateApp.notifyInvalidListing()";
 
   return `
-    <button class="realestate-card" onclick="window.RealEstateApp.openListing('${code}')">
+    <button class="realestate-card" onclick="${clickAction}">
       <div class="realestate-card-media">
         ${renderRealEstateImage(listing.coverImage, title)}
         <span class="realestate-tag">${window.Utils.escapeHtml(typeLabel)}</span>
@@ -220,7 +223,7 @@ function renderRealEstateCard(listing) {
         ${
           listing.brokerName
             ? `<div class="realestate-card-broker">${window.Utils.escapeHtml(listing.brokerName)}</div>`
-            : ""
+            : `<div class="realestate-card-broker">Corretor nao informado</div>`
         }
       </div>
     </button>
@@ -252,10 +255,10 @@ function renderRealEstateDetail(state) {
   const title = realEstateSafeText(listing.title, "Imovel anunciado");
   const location = realEstateLocationLine(listing);
   const photos = Array.isArray(listing.photos) ? listing.photos : [];
-  const hero = listing.coverImage || photos[0]?.imageUrl || "";
+  const hero = listing.coverImage || realEstatePhotoImage(photos[0]) || "";
   const brokerName =
     realEstateSafeText(listing.brokerName) ||
-    realEstateSafeText(listing.agencyName, "Imobiliaria");
+    realEstateSafeText(listing.agencyName, "Corretor nao informado");
   const phone = realEstateSafeText(listing.brokerPhone || listing.agencyPhone);
   const hasCoords =
     listing.coords &&
@@ -280,7 +283,7 @@ function renderRealEstateDetail(state) {
               ? `<div class="realestate-detail-location"><i data-lucide="map-pin"></i><span>${window.Utils.escapeHtml(location)}</span></div>`
               : ""
           }
-          <p>${window.Utils.escapeHtml(listing.description || "Sem descricao")}</p>
+          <p>${window.Utils.escapeHtml(listing.description || "Descricao indisponivel")}</p>
         </div>
 
         ${renderRealEstatePublicGallery(photos, title)}
@@ -316,15 +319,18 @@ function renderRealEstateDetail(state) {
 }
 
 function renderRealEstatePublicGallery(photos, title) {
-  if (!Array.isArray(photos) || photos.length <= 1) return "";
+  const usablePhotos = (Array.isArray(photos) ? photos : []).filter((photo) =>
+    Boolean(realEstatePhotoImage(photo)),
+  );
+  if (usablePhotos.length <= 1) return "";
 
   return `
     <div class="realestate-gallery-section">
       <div class="realestate-section-title">Fotos</div>
       <div class="realestate-public-gallery">
-        ${photos
+        ${usablePhotos
           .map((photo) => {
-            const image = photo.imageUrl || photo.thumbnailUrl || "";
+            const image = realEstatePhotoImage(photo);
             if (!image) return "";
             return `
               <button class="realestate-public-photo" onclick="window.RealEstateApp.setDetailCover('${window.Utils.escapeHtmlAttr(encodeURIComponent(image))}')">
@@ -385,11 +391,17 @@ function renderRealEstateMine(state) {
 
 function renderMyRealEstateCard(listing) {
   const title = realEstateSafeText(listing.title, "Imovel anunciado");
-  const code = window.Utils.escapeHtmlAttr(listing.listingCode || "");
+  const code = window.Utils.escapeHtmlAttr(listingCodeFrom(listing));
   const status = listing.status || "";
   const canArchive = status !== "archived";
   const nextStatus = status === "active" ? "paused" : "active";
   const nextLabel = status === "active" ? "Pausar" : "Ativar";
+  const openAction = code
+    ? `window.RealEstateApp.openListing('${code}')`
+    : "window.RealEstateApp.notifyInvalidListing()";
+  const editAction = code
+    ? `window.RealEstateApp.editListing('${code}')`
+    : "window.RealEstateApp.notifyInvalidListing()";
 
   return `
     <div class="realestate-my-card">
@@ -404,8 +416,8 @@ function renderMyRealEstateCard(listing) {
       </div>
 
       <div class="realestate-my-actions">
-        <button onclick="window.RealEstateApp.openListing('${code}')"><i data-lucide="eye"></i><span>Ver</span></button>
-        <button onclick="window.RealEstateApp.editListing('${code}')"><i data-lucide="pencil"></i><span>Editar</span></button>
+        <button onclick="${openAction}"><i data-lucide="eye"></i><span>Ver</span></button>
+        <button onclick="${editAction}"><i data-lucide="pencil"></i><span>Editar</span></button>
         ${
           canArchive
             ? `<button onclick="window.RealEstateApp.setStatus('${code}', '${nextStatus}')"><i data-lucide="${status === "active" ? "pause" : "play"}"></i><span>${nextLabel}</span></button>`
@@ -413,7 +425,7 @@ function renderMyRealEstateCard(listing) {
         }
         ${
           canArchive
-            ? `<button onclick="window.RealEstateApp.archiveListing('${code}')"><i data-lucide="archive"></i><span>Excluir</span></button>`
+            ? `<button onclick="window.RealEstateApp.archiveListing('${code}')"><i data-lucide="archive"></i><span>Remover</span></button>`
             : ""
         }
       </div>
@@ -519,6 +531,44 @@ function realEstatePhotoDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+}
+
+function getGalleryPhotoId(photo) {
+  const id = photo?.id ?? photo?.photoId ?? photo?.photo_id ?? photo?.galleryPhotoId ?? photo?.gallery_photo_id;
+  const numeric = Number(id);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+function listingCodeFrom(value) {
+  if (!value || typeof value !== "object") return "";
+  return String(
+    value.listingCode ||
+      value.listing_code ||
+      value.code ||
+      value.id ||
+      "",
+  ).trim();
+}
+
+function getCurrentEditingListingCode(state = window.PhoneApp.getState()) {
+  return (
+    listingCodeFrom(state.realEstateSelectedListing) ||
+    listingCodeFrom(state.realEstateForm) ||
+    String(state.realEstateEditingListingCode || "").trim()
+  );
+}
+
+function currentListingForMedia(state, listingCode) {
+  const selected =
+    state.realEstateSelectedListing &&
+    typeof state.realEstateSelectedListing === "object"
+      ? state.realEstateSelectedListing
+      : {};
+
+  return {
+    ...selected,
+    listingCode,
+  };
 }
 
 function renderRealEstatePhotoManager(state) {
@@ -770,6 +820,10 @@ function loadBrokerArea() {
 }
 
 window.RealEstateApp = {
+  notifyInvalidListing() {
+    notifyRealEstateError("Anuncio nao encontrado.");
+  },
+
   setTab(tab) {
     window.PhoneApp.patchState({
       realEstateTab: tab,
@@ -828,16 +882,22 @@ window.RealEstateApp = {
 
   editListing(listingCode) {
     const code = String(listingCode || "").trim();
-    if (!code) return;
+    if (!code) {
+      this.notifyInvalidListing();
+      return;
+    }
 
     window.PhoneApp.patchState({
       realEstateView: "form",
       realEstateFormMode: "edit",
+      realEstateEditingListingCode: code,
       realEstateSelectedListing: null,
       realEstateLoading: true,
       realEstateError: "",
       realEstatePhotoPickerOpen: false,
-      realEstateForm: {},
+      realEstateForm: {
+        listingCode: code,
+      },
     });
     window.PhoneApp.renderCurrentApp();
 
@@ -869,7 +929,13 @@ window.RealEstateApp = {
     window.PhoneApp.renderCurrentApp();
 
     if (isEdit) {
-      const code = state.realEstateSelectedListing?.listingCode;
+      const code = getCurrentEditingListingCode(state);
+      if (!code) {
+        notifyRealEstateError("Anuncio nao encontrado.");
+        window.PhoneApp.patchState({ realEstateActionBusy: false });
+        window.PhoneApp.renderCurrentApp();
+        return;
+      }
       await window.PhoneAPI?.updateRealEstateListing?.(code, form);
       return;
     }
@@ -879,7 +945,10 @@ window.RealEstateApp = {
 
   async setStatus(listingCode, status) {
     const code = String(listingCode || "").trim();
-    if (!code) return;
+    if (!code) {
+      this.notifyInvalidListing();
+      return;
+    }
 
     window.PhoneApp.patchState({ realEstateActionBusy: true });
     window.PhoneApp.renderCurrentApp();
@@ -888,18 +957,29 @@ window.RealEstateApp = {
 
   archiveListing(listingCode) {
     const code = String(listingCode || "").trim();
-    if (!code) return;
-
-    if (window.confirm && !window.confirm("Arquivar este anuncio?")) {
+    if (!code) {
+      this.notifyInvalidListing();
       return;
     }
 
-    this.setStatus(code, "archived");
+    window.PhoneDialog?.confirm?.({
+      title: "Remover anuncio?",
+      message:
+        "Este anuncio sera arquivado e nao aparecera mais na lista publica.",
+      confirmText: "Remover",
+      cancelText: "Cancelar",
+      tone: "danger",
+      app: "realestate",
+      onConfirm: () => this.setStatus(code, "archived"),
+    });
   },
 
   async openListing(listingCode) {
     const code = String(listingCode || "").trim();
-    if (!code) return;
+    if (!code) {
+      this.notifyInvalidListing();
+      return;
+    }
 
     window.PhoneApp.patchState({
       realEstateView: "detail",
@@ -1039,14 +1119,22 @@ window.RealEstateApp = {
 
   openGalleryPicker() {
     const state = window.PhoneApp.getState();
-    const listing = state.realEstateSelectedListing;
-    if (!listing?.listingCode) return;
+    const listingCode = getCurrentEditingListingCode(state);
+    if (!listingCode) {
+      notifyRealEstateError("Anuncio invalido para anexar foto.");
+      return;
+    }
+
+    const listing = currentListingForMedia(state, listingCode);
 
     window.PhoneMedia?.openGalleryForResult?.({
+      returnTo: "realestate",
+      type: "image",
       purpose: "realestate_listing_photo",
       returnApp: "realestate",
       context: {
-        listingCode: listing.listingCode,
+        listingCode,
+        mode: "attach_listing_photo",
       },
       returnState: {
         realEstateView: "form",
@@ -1074,11 +1162,16 @@ window.RealEstateApp = {
   },
 
   async attachGalleryPhoto(photoId) {
-    const listing = window.PhoneApp.getState().realEstateSelectedListing;
-    const listingCode = String(listing?.listingCode || "").trim();
+    const state = window.PhoneApp.getState();
+    const listingCode = getCurrentEditingListingCode(state);
     const galleryPhotoId = Number(photoId);
-    if (!listingCode || !Number.isFinite(galleryPhotoId)) {
-      notifyRealEstateError("Foto indisponivel.");
+    if (!listingCode) {
+      notifyRealEstateError("Anuncio invalido para anexar foto.");
+      return;
+    }
+
+    if (!Number.isFinite(galleryPhotoId) || galleryPhotoId <= 0) {
+      notifyRealEstateError("Foto indisponivel para selecao.");
       return;
     }
 
@@ -1087,20 +1180,51 @@ window.RealEstateApp = {
     await window.PhoneAPI?.attachRealEstateGalleryPhoto?.(listingCode, galleryPhotoId);
   },
 
-  async applyMediaResult(result, request) {
+  async applyMediaResult(result, context, request = {}) {
+    const mediaContext =
+      context && typeof context === "object" && context.context
+        ? context.context
+        : context || {};
+    const mediaRequest =
+      request && Object.keys(request).length
+        ? request
+        : context && typeof context === "object" && context.context
+          ? context
+          : {};
     const listingCode = String(
-      request?.context?.listingCode ||
-        window.PhoneApp.getState().realEstateSelectedListing?.listingCode ||
+      mediaContext?.listingCode ||
+        getCurrentEditingListingCode(window.PhoneApp.getState()) ||
         "",
     ).trim();
-    const galleryPhotoId = Number(result?.id);
+    const galleryPhotoId = getGalleryPhotoId(result);
+    const purpose = mediaRequest?.purpose || "";
+    const mode = mediaContext?.mode || "";
+    const cameFromCamera =
+      mediaRequest?.kind === "camera" ||
+      purpose === "realestate_listing_camera" ||
+      mode === "attach_listing_photo_after_camera" ||
+      result?.source === "camera";
 
-    if (request?.purpose !== "realestate_listing_photo") {
+    if (
+      purpose !== "realestate_listing_photo" &&
+      purpose !== "realestate_listing_camera" &&
+      mode !== "attach_listing_photo" &&
+      mode !== "attach_listing_photo_after_camera"
+    ) {
       return false;
     }
 
-    if (!listingCode || !Number.isFinite(galleryPhotoId)) {
-      notifyRealEstateError("Foto indisponivel.");
+    if (!listingCode) {
+      notifyRealEstateError("Anuncio invalido para anexar foto.");
+      return true;
+    }
+
+    if (!galleryPhotoId) {
+      notifyRealEstateError(
+        cameFromCamera
+          ? "Foto salva na Galeria. Abra Adicionar da Galeria para anexar ao anuncio."
+          : "Foto indisponivel para selecao.",
+      );
       return true;
     }
 
@@ -1129,20 +1253,54 @@ window.RealEstateApp = {
     const id = Number(photoId);
     if (!code || !Number.isFinite(id)) return;
 
-    if (window.confirm && !window.confirm("Remover esta foto do anuncio?")) {
-      return;
-    }
-
-    window.PhoneApp.patchState({ realEstatePhotoBusy: true });
-    window.PhoneApp.renderCurrentApp();
-    await window.PhoneAPI?.removeRealEstatePhoto?.(code, id);
+    window.PhoneDialog?.confirm?.({
+      title: "Remover foto?",
+      message: "Esta foto sera removida do anuncio.",
+      confirmText: "Remover",
+      cancelText: "Cancelar",
+      tone: "danger",
+      app: "realestate",
+      onConfirm: async () => {
+        window.PhoneApp.patchState({ realEstatePhotoBusy: true });
+        window.PhoneApp.renderCurrentApp();
+        await window.PhoneAPI?.removeRealEstatePhoto?.(code, id);
+      },
+    });
   },
 
   openCameraShortcut() {
-    window.PhoneApp.patchState({
-      previousApp: "realestate",
-      realEstatePhotoPickerOpen: false,
+    const state = window.PhoneApp.getState();
+    const listingCode = getCurrentEditingListingCode(state);
+    if (!listingCode) {
+      notifyRealEstateError("Anuncio invalido para anexar foto.");
+      return;
+    }
+
+    const listing = currentListingForMedia(state, listingCode);
+
+    window.PhoneMedia?.openCameraForResult?.({
+      returnTo: "realestate",
+      type: "image",
+      purpose: "realestate_listing_camera",
+      returnApp: "realestate",
+      context: {
+        listingCode,
+        mode: "attach_listing_photo_after_camera",
+      },
+      returnState: {
+        realEstateView: "form",
+        realEstateFormMode: "edit",
+        realEstateSelectedListing: listing,
+        realEstateForm: state.realEstateForm || {},
+        realEstateProperties: state.realEstateProperties || [],
+        realEstateAccess: state.realEstateAccess || null,
+        realEstateError: "",
+        realEstateLoading: false,
+        realEstateActionBusy: false,
+        realEstatePhotoBusy: false,
+        realEstatePhotoPickerOpen: false,
+        realEstatePhotoPickerLoading: false,
+      },
     });
-    window.openApp("camera");
   },
 };

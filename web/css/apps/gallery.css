@@ -26,6 +26,11 @@
   padding: 0;
 }
 
+.gallery-tile.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .gallery-tile img,
 .gallery-viewer-image {
   width: 100%;
