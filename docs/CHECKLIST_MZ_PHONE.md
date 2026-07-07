@@ -44,11 +44,24 @@ Este checklist e o guia de continuidade do `mz_phone`. Ele foi criado a partir d
 
 ## RealEstate
 
-- [ ] Manter integracao com exports do `mz_realestate`; nao mover regras para `mz_phone`.
+- [x] Manter integracao com exports do `mz_realestate`; nao mover regras para `mz_phone`.
 - [x] Manter validacao de propriedade da foto no servidor antes de anexar.
 - [x] Separar correcoes de fluxo de media de melhorias visuais.
 - [ ] Evitar aumentar `web/apps/realestate.js` sem plano de divisao ou helpers internos.
-- [ ] Definir teste manual para listar, criar, editar, anexar foto, definir capa e remover foto.
+- [x] Definir teste manual para listar, criar, editar, anexar foto, definir capa e remover foto.
+
+## Fase 1 Imoveis
+
+- [x] Vitrine publica
+- [x] Detalhe robusto
+- [x] Meus anuncios
+- [x] Criar anuncio em property existente
+- [x] Editar anuncio
+- [x] Fotos por `galleryPhotoId`
+- [x] Arquivar com `PhoneDialog`
+- [ ] Estoque de imobiliaria - Fase 2
+- [ ] Venda/ledger/escrow - Fase 4
+- [ ] Aluguel - Fase 5
 
 ## `mz_phone_server`
 
@@ -122,14 +135,28 @@ Este checklist e o guia de continuidade do `mz_phone`. Ele foi criado a partir d
 ### Consolidacao do app Imoveis
 
 - [x] Lista publica usa normalizacao defensiva de anuncio/foto no `AppContract.realestate`.
+- [x] Lista publica filtra tipos `sale`, `rent`, `visit` e `showcase`, quando o `mz_realestate` permitir.
 - [x] Detalhe do anuncio abre com loading, erro amigavel e placeholders quando nao ha foto/campo opcional.
+- [x] Detalhe aberto por `Meus anuncios` usa busca gerenciavel (`GetMyListingFromPhone`), evitando tela vazia por filtro publico/status.
 - [x] Detalhe com foto nao depende de um unico alias (`imageUrl`, `image_url`, `thumbnailUrl`, `coverImage`, `cover_url`).
 - [x] Meus anuncios usa `listingCode` normalizado e recebe fotos do painel do `mz_realestate` para capa.
+- [x] App Imoveis foi alinhado como vitrine/anuncio; o celular nao cadastra propriedade real.
+- [x] Novo anuncio exige `propertyCode` vindo de `ListPhoneAdvertisableProperties`.
+- [x] Textos do form usam "Novo anuncio" e "Imovel base" para evitar confusao com cadastro administrativo.
+- [x] Botao Salvar do Novo anuncio re-renderiza apos selecionar Imovel base e mostra notify/checklist quando bloqueado.
+- [x] Criar anuncio nao envia foto/URL e, apos sucesso, abre o anuncio criado em modo edicao para adicionar fotos.
 - [x] Editar anuncio usa fallback robusto de `listingCode` ao salvar.
 - [x] Remover anuncio usa status seguro `archived`, sem hard delete.
 - [x] Remover anuncio e remover foto usam `PhoneDialog.confirm` global dentro do celular.
 - [x] Erros conhecidos de foto/status foram mapeados para mensagens de dominio.
+- [x] Foto sem URL publica retorna mensagem de configuracao de upload, nao erro generico de create.
+- [x] Anexo de foto do app Imoveis exige URL publica `http/https`; `nui://`, `cfx-nui://`, base64 e caminho local nao entram no `mz_realestate`.
+- [x] Render de app tem protecao contra excecao para evitar tela branca.
+- [x] Config compartilhada nao contem webhook real de camera; preencher upload em config local/ambiente.
+- [x] URLs de foto de anuncio publico aceitam somente `http/https` e limite foi ampliado para URLs longas de CDN.
 - [ ] Anexar foto testado in-game.
+- [ ] Fotos em anuncio dependem de URL publica configurada no upload (`mz_phone_server` ou Discord).
+- [ ] Camera anexa automaticamente somente quando o retorno trouxer `galleryPhotoId` real.
 
 ### PhoneDialog global
 

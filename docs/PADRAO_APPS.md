@@ -147,6 +147,8 @@ O dialog renderiza dentro do shell do celular, nao fecha o app, nao ativa previe
 - Atualizar `phoneState` em `app.js`.
 - Renderizar somente se o app atual depender daquele dado.
 - Tratar erro de dominio com mensagem especifica, nao com erro generico.
+- Fluxos de midia entre apps devem retornar IDs persistidos do dominio (`galleryPhotoId`, por exemplo), nunca aceitar URL livre digitada/enviada pela NUI para gravar dados publicos.
+- Notificacoes de erro dentro de app devem usar `{ preventPreview: true, keepPhoneOpen: true, scope: "in-app" }`.
 
 ## CSS
 

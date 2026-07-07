@@ -73,12 +73,17 @@ const DEFAULT_PHONE_STATE = {
   realEstateSelectedListing: null,
   realEstateMyListings: [],
   realEstateProperties: [],
+  realEstatePropertiesLoading: false,
+  realEstatePropertiesError: "",
   realEstateAccess: null,
   realEstateView: "list",
   realEstateTab: "all",
+  realEstateReturnView: "list",
   realEstateFormMode: "create",
   realEstateForm: {},
   realEstateActionBusy: false,
+  realEstateSaving: false,
+  realEstateLastError: null,
   realEstatePhotoBusy: false,
   realEstatePhotoPickerOpen: false,
   realEstatePhotoPickerLoading: false,
@@ -313,6 +318,10 @@ window.PhoneDialog = {
 };
 
 function realEstateActionSuccessMessage(action, result = {}) {
+  if (action === "create" && result?.status === "pending")
+    return "Anuncio criado como pendente.";
+  if (action === "create" && result?.status === "active")
+    return "Anuncio publicado.";
   if (action === "create") return "Anuncio criado.";
   if (action === "update") return "Anuncio atualizado.";
   if (action === "status" && result?.status === "archived")
@@ -335,9 +344,27 @@ function realEstateActionErrorMessage(error) {
   if (error === "invalid_property" || error === "not_listable") {
     return "Imovel indisponivel para anuncio.";
   }
+  if (error === "property_not_found" || error === "house_not_found")
+    return "Imovel base nao encontrado.";
+  if (
+    error === "property_not_advertisable" ||
+    error === "disabled" ||
+    error === "archived" ||
+    error === "hidden" ||
+    error === "not_residential" ||
+    error === "not_player_property" ||
+    error === "org_property"
+  ) {
+    return "Este imovel nao esta liberado para anuncio.";
+  }
+  if (error === "property_required")
+    return "Selecione um Imovel base.";
   if (error === "invalid_title")
     return "Informe um titulo com pelo menos 3 letras.";
-  if (error === "invalid_listing_type") return "Escolha venda ou aluguel.";
+  if (error === "invalid_listing_type")
+    return "Escolha venda, aluguel, visita ou vitrine.";
+  if (error === "invalid_price")
+    return "Informe um preco valido.";
   if (error === "invalid_status") return "Status invalido.";
   if (error === "listing_not_found") return "Anuncio nao encontrado.";
   if (error === "listing_archived")
@@ -349,17 +376,23 @@ function realEstateActionErrorMessage(error) {
   if (error === "photo_limit_reached")
     return "Limite de fotos atingido para este anuncio.";
   if (error === "invalid_image_url")
-    return "A URL da foto nao e valida.";
+    return "A foto aparece na sua galeria, mas nao possui URL publica valida para anuncio.";
   if (error === "scheme_not_allowed")
-    return "O formato da URL da foto nao e permitido.";
+    return "Esta foto foi salva em formato local e nao pode ser usada em anuncio publico.";
+  if (error === "too_long")
+    return "A URL publica desta foto e maior do que o limite permitido para anuncio.";
+  if (error === "upload_public_url_missing")
+    return "Esta foto nao possui URL publica. Configure o upload do mz_phone_server ou Discord para usar fotos em anuncios.";
   if (error === "photo_insert_failed")
     return "Nao foi possivel salvar a foto no anuncio.";
-  if (
-    error === "business_permission_required" ||
-    error === "permission_denied"
-  ) {
+  if (error === "business_permission_required") {
+    return "Sua imobiliaria nao pode criar este anuncio.";
+  }
+  if (error === "permission_denied") {
     return "Voce nao pode alterar este anuncio.";
   }
+  if (error === "create_failed")
+    return "Nao foi possivel criar o anuncio.";
   if (error === "realestate_unavailable")
     return "Sistema de imoveis indisponivel.";
   if (error === "rate_limited")
@@ -368,6 +401,14 @@ function realEstateActionErrorMessage(error) {
     return "Este imovel ja possui anuncio ativo ou pausado.";
   }
   return "Nao foi possivel concluir a acao.";
+}
+
+function realEstateListingTypeFromTab(tab) {
+  if (tab === "sale" || tab === "rent" || tab === "visit" || tab === "showcase") {
+    return tab;
+  }
+
+  return "";
 }
 
 function applyShellState() {
@@ -686,14 +727,94 @@ function renderCurrentApp() {
   const app = window.AppRegistry.getApp(appId);
   if (!app) return;
 
-  const ctx = createAppContext(appId);
-  const html = app.render ? app.render(ctx) : `<div class="app-page"></div>`;
+  let html = `<div class="app-page"></div>`;
+  try {
+    const ctx = createAppContext(appId);
+    html = app.render ? app.render(ctx) : html;
+  } catch (error) {
+    console.error("[mz_phone] render app error", appId, error);
+    phoneState.isOpen = true;
+    clearNotificationPreview("render_app_error");
+    applyShellState();
+    html = `
+      <div class="app-page app-error-page">
+        <div class="app-content realestate-content">
+          <div class="realestate-empty">
+            <i data-lucide="triangle-alert"></i>
+            <div>Nao foi possivel carregar esta tela.</div>
+            <button class="realestate-action" onclick="window.goHome()">
+              <i data-lucide="chevron-left"></i>
+              <span>Voltar</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
 
   appContent.innerHTML = html;
 
   if (window.lucide && typeof window.lucide.createIcons === "function") {
     window.lucide.createIcons();
   }
+}
+
+function realEstateListingFromPayload(data) {
+  if (!data || typeof data !== "object" || data.ok === false) return null;
+
+  const candidates = [
+    data.listing,
+    data.result?.listing,
+    data.data?.listing,
+    data.result,
+    data.data,
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate && typeof candidate === "object") {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function realEstateActionResultFromPayload(data) {
+  if (!data || typeof data !== "object") return {};
+
+  const raw =
+    data.result && typeof data.result === "object"
+      ? data.result
+      : data.data && typeof data.data === "object"
+        ? data.data
+        : data.listing && typeof data.listing === "object"
+          ? data.listing
+          : {};
+  const listing =
+    raw.listing && typeof raw.listing === "object"
+      ? raw.listing
+      : data.listing && typeof data.listing === "object"
+        ? data.listing
+        : raw;
+  const listingCode = String(
+    raw.listingCode ||
+      raw.listing_code ||
+      raw.code ||
+      data.listingCode ||
+      data.listing_code ||
+      data.code ||
+      listing?.listingCode ||
+      listing?.listing_code ||
+      listing?.code ||
+      "",
+  ).trim();
+
+  return {
+    ...raw,
+    listing,
+    listingCode,
+    status: raw.status || listing?.status || "",
+  };
 }
 
 function mediaPhotoUrl(photo) {
@@ -1302,7 +1423,7 @@ function bootPhone() {
 
       phoneState = window.AppContract.realestate.setSelected(
         phoneState,
-        data.ok === false ? null : data.listing || null,
+        realEstateListingFromPayload(data),
       );
       phoneState.realEstateLoading = false;
       phoneState.realEstateError =
@@ -1336,6 +1457,9 @@ function bootPhone() {
       phoneState.realEstateProperties = Array.isArray(data.properties)
         ? data.properties
         : [];
+      phoneState.realEstatePropertiesLoading = false;
+      phoneState.realEstatePropertiesError =
+        data.ok === false ? data.error || "properties_failed" : "";
 
       if (phoneState.currentApp === "realestate") {
         renderCurrentApp();
@@ -1372,7 +1496,7 @@ function bootPhone() {
       const listing =
         window.AppContract.realestate.setSelected(
           {},
-          data.ok === false ? null : data.listing || null,
+          realEstateListingFromPayload(data),
         ).realEstateSelectedListing || null;
 
       phoneState.realEstateSelectedListing = listing;
@@ -1403,14 +1527,16 @@ function bootPhone() {
     window.PhoneAPI.onReceiveRealEstateAction((payload) => {
       const data = payload && typeof payload === "object" ? payload : {};
       const action = String(data.action || "");
-      const result = data.result && typeof data.result === "object" ? data.result : {};
+      const result = realEstateActionResultFromPayload(data);
       const isPhotoAction =
         action === "photo_attach" ||
         action === "photo_primary" ||
         action === "photo_remove" ||
         action === "photos" ||
         action === "gallery";
+      window.RealEstateApp?.clearSaveTimeout?.();
       phoneState.realEstateActionBusy = false;
+      phoneState.realEstateSaving = false;
       if (isPhotoAction) {
         phoneState.realEstatePhotoBusy = false;
       }
@@ -1418,11 +1544,24 @@ function bootPhone() {
         phoneState.realEstatePhotoPickerLoading = false;
       }
 
+      if (phoneState.currentApp === "realestate") {
+        phoneState.isOpen = true;
+        clearNotificationPreview("realestate_action_keep_open");
+        applyShellState();
+      }
+
       if (isPhoneActuallyOpen()) {
         maintainOpenIfAlreadyOpen("realestate_action");
       }
 
       if (data.ok === false) {
+        phoneState.realEstateLastError = data.error || "action_failed";
+        if (window.localStorage?.getItem("mzPhoneDebug") === "1") {
+          console.debug("[realestate:create]", {
+            action: "response ok=false",
+            error: phoneState.realEstateLastError,
+          });
+        }
         window.PhoneUI?.notify?.({
           type: "error",
           title: "Imoveis",
@@ -1431,6 +1570,9 @@ function bootPhone() {
           keepPhoneOpen: true,
           scope: "in-app",
         });
+        if (isPhoneActuallyOpen()) {
+          maintainOpenIfAlreadyOpen("realestate_action_error");
+        }
       } else if (isPhotoAction) {
         const listingCode =
           result.listingCode || phoneState.realEstateSelectedListing?.listingCode || "";
@@ -1467,42 +1609,77 @@ function bootPhone() {
 
           window.PhoneAPI?.getMyRealEstateListings?.();
           window.PhoneAPI?.getRealEstateListings?.({
-            listingType:
-              phoneState.realEstateTab === "sale"
-                ? "sale"
-                : phoneState.realEstateTab === "rent"
-                  ? "rent"
-                  : "",
+            listingType: realEstateListingTypeFromTab(phoneState.realEstateTab),
           });
         }
       } else {
-        phoneState.realEstateView = "mine";
-        phoneState.realEstateSelectedListing = null;
-        phoneState.realEstateForm = {};
+        const resultListingCode = String(result.listingCode || "").trim();
+
+        if ((action === "create" || action === "update") && resultListingCode) {
+          if (window.localStorage?.getItem("mzPhoneDebug") === "1") {
+            console.debug("[realestate:create]", {
+              action: "response ok=true",
+              listingCode: resultListingCode,
+            });
+          }
+          phoneState.realEstateView = "form";
+          phoneState.realEstateFormMode = "edit";
+          phoneState.realEstateEditingListingCode = resultListingCode;
+          phoneState.realEstateReturnView = "mine";
+          phoneState.realEstateSelectedListing = null;
+          phoneState.realEstateForm = { listingCode: resultListingCode };
+          phoneState.realEstateLoading = true;
+          window.PhoneAPI?.getMyRealEstateListing?.(resultListingCode);
+          window.PhoneAPI?.getRealEstateListingPhotos?.(resultListingCode);
+        } else if (action === "create" || action === "update") {
+          phoneState.realEstateView = "mine";
+          phoneState.realEstateSelectedListing = null;
+          phoneState.realEstateForm = {};
+          phoneState.realEstateLastError = "missing_listing_code";
+
+          window.PhoneUI?.notify?.({
+            type: "warning",
+            title: "Imoveis",
+            message:
+              action === "create"
+                ? "Anuncio criado, mas nao foi possivel abrir a edicao."
+                : "Anuncio atualizado, mas nao foi possivel abrir a edicao.",
+            preventPreview: true,
+            keepPhoneOpen: true,
+            scope: "in-app",
+          });
+        } else {
+          phoneState.realEstateView = "mine";
+          phoneState.realEstateSelectedListing = null;
+          phoneState.realEstateForm = {};
+        }
         phoneState.realEstateError = "";
 
-        window.PhoneUI?.notify?.({
-          type: "success",
-          title: "Imoveis",
-          message: realEstateActionSuccessMessage(action, result),
-          preventPreview: true,
-          keepPhoneOpen: true,
-          scope: "in-app",
-        });
+        if (resultListingCode || (action !== "create" && action !== "update")) {
+          window.PhoneUI?.notify?.({
+            type: "success",
+            title: "Imoveis",
+            message: realEstateActionSuccessMessage(action, result),
+            preventPreview: true,
+            keepPhoneOpen: true,
+            scope: "in-app",
+          });
+        }
 
         window.PhoneAPI?.getMyRealEstateListings?.();
         window.PhoneAPI?.getRealEstateListings?.({
-          listingType:
-            phoneState.realEstateTab === "sale"
-              ? "sale"
-              : phoneState.realEstateTab === "rent"
-                ? "rent"
-                : "",
+          listingType: realEstateListingTypeFromTab(phoneState.realEstateTab),
         });
       }
 
       if (phoneState.currentApp === "realestate") {
+        if (isPhoneActuallyOpen()) {
+          maintainOpenIfAlreadyOpen("realestate_action_before_render");
+        }
         renderCurrentApp();
+        if (isPhoneActuallyOpen()) {
+          maintainOpenIfAlreadyOpen("realestate_action_after_render");
+        }
       }
     });
   }

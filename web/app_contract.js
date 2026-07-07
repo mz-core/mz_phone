@@ -43,15 +43,24 @@ function normalizeRealEstateContractPhoto(photo) {
 function normalizeRealEstateContractListing(listing) {
   if (!listing || typeof listing !== "object") return null;
 
-  const photos = Array.isArray(listing.photos)
-    ? listing.photos.map(normalizeRealEstateContractPhoto).filter(Boolean)
-    : [];
+  const rawPhotos = Array.isArray(listing.photos)
+    ? listing.photos
+    : Array.isArray(listing.images)
+      ? listing.images
+      : [];
+  const photos = rawPhotos
+    .map(normalizeRealEstateContractPhoto)
+    .filter(Boolean);
   const primaryPhoto = photos.find((photo) => photo.isPrimary);
   const coverImage = realEstateContractText(
     listing.coverImage ??
       listing.cover_image ??
       listing.coverUrl ??
       listing.cover_url ??
+      listing.imageUrl ??
+      listing.image_url ??
+      listing.thumbnailUrl ??
+      listing.thumbnail_url ??
       primaryPhoto?.imageUrl ??
       photos[0]?.imageUrl ??
       "",
@@ -59,9 +68,18 @@ function normalizeRealEstateContractListing(listing) {
   const listingCode = realEstateContractText(
     listing.listingCode ?? listing.listing_code ?? listing.code ?? listing.id,
   );
+  const coords =
+    listing.coords && typeof listing.coords === "object"
+      ? listing.coords
+      : listing.location && typeof listing.location === "object"
+        ? listing.location
+        : listing.position && typeof listing.position === "object"
+          ? listing.position
+          : null;
 
   return {
     ...listing,
+    raw: listing,
     listingCode,
     listing_code: listing.listing_code ?? listingCode,
     title: realEstateContractText(listing.title, "Imovel sem titulo"),
@@ -70,25 +88,45 @@ function normalizeRealEstateContractListing(listing) {
       "Descricao indisponivel",
     ),
     listingType: realEstateContractText(
-      listing.listingType ?? listing.listing_type,
+      listing.listingType ?? listing.listing_type ?? listing.type,
     ),
     typeLabel: realEstateContractText(listing.typeLabel ?? listing.type_label),
+    price: listing.price ?? listing.value ?? null,
     formattedPrice: realEstateContractText(
-      listing.formattedPrice ?? listing.priceText ?? listing.price_text,
+      listing.formattedPrice ??
+        listing.priceText ??
+        listing.price_text ??
+        listing.formatted_price,
       "Sob consulta",
     ),
-    coverImage,
+    coverImage: coverImage || null,
     coverUrl: coverImage,
     photos,
     brokerName: realEstateContractText(
-      listing.brokerName ?? listing.broker_name ?? listing.signBrokerName,
+      listing.brokerName ??
+        listing.broker_name ??
+        listing.signBrokerName ??
+        listing.sign_broker_name,
     ),
     brokerPhone: realEstateContractText(
-      listing.brokerPhone ?? listing.broker_phone ?? listing.signPhone,
+      listing.brokerPhone ??
+        listing.broker_phone ??
+        listing.signPhone ??
+        listing.sign_phone ??
+        listing.phone ??
+        listing.contact_phone,
     ),
     agencyName: realEstateContractText(listing.agencyName ?? listing.agency_name),
     agencyPhone: realEstateContractText(
       listing.agencyPhone ?? listing.agency_phone,
+    ),
+    phone: realEstateContractText(
+      listing.phone ??
+        listing.contact_phone ??
+        listing.brokerPhone ??
+        listing.broker_phone ??
+        listing.signPhone ??
+        listing.sign_phone,
     ),
     propertyCode: realEstateContractText(
       listing.propertyCode ?? listing.property_code,
@@ -96,6 +134,14 @@ function normalizeRealEstateContractListing(listing) {
     propertyLabel: realEstateContractText(
       listing.propertyLabel ?? listing.property_label ?? listing.property?.label,
     ),
+    address: realEstateContractText(
+      listing.address ?? listing.locationLabel ?? listing.location_label,
+    ),
+    neighborhood: realEstateContractText(
+      listing.neighborhood ?? listing.district,
+    ),
+    city: realEstateContractText(listing.city),
+    coords,
     status: realEstateContractText(listing.status, "active"),
   };
 }

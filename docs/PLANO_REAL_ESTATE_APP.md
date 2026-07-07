@@ -2,6 +2,20 @@
 
 Este plano cobre a continuidade do app Imoveis/RealEstate dentro do `mz_phone`.
 
+## Arquitetura Imoveis
+
+- O `mz_realestate` guarda o imovel/propriedade real e suas regras administrativas.
+- O `mz_phone` cria e edita apenas anuncios/listings publicos para propriedades existentes.
+- Criar anuncio pelo celular exige `propertyCode`, pois `mz_realestate_listings.property_code` e obrigatorio.
+- A lista de imoveis anunciaveis vem do export `ListPhoneAdvertisableProperties`.
+- A permissao de corretor/imobiliaria vem de `GetPhoneBrokerAccess`.
+- A regra de disponibilidade da propriedade fica em `CanPropertyBeAdvertised`.
+- O status inicial do anuncio criado pelo celular segue `MZRealEstateConfig.Listing.defaultStatus` (`pending` no config atual).
+- Foto e adicionada somente depois que o anuncio existe e possui `listingCode`.
+- Foto de anuncio exige URL publica `http/https`; `nui://`, caminho local e base64 nao devem ser usados em anuncio publico persistente.
+- O app Imoveis anexa foto apenas por `galleryPhotoId`; o frontend nao envia `imageUrl`, `photos`, `coverImage` ou URL livre em create/update/attach.
+- Anuncio manual/desvinculado de propriedade e fase futura, porque exige mudanca de banco/regra.
+
 ## Estado atual observado
 
 O app `web/apps/realestate.js` concentra:
@@ -112,9 +126,20 @@ Diagnostico pendente:
 ### Consolidacao minima aplicada
 
 - Normalizacao defensiva de anuncio/foto no frontend para evitar detalhe vazio quando o payload vier com aliases diferentes.
+- Normalizacao ampliada para `photos/images`, `price/value`, `phone/contact_phone`, `coords/location/position` e aliases de capa.
 - `mz_phone` tambem aceita `code`/`id` como fallback de `listingCode` e preserva `coverImage`/`cover_url` quando vier do `mz_realestate`.
 - `mz_realestate` envia `photos` tambem no painel de "Meus anuncios", permitindo capa nos cards gerenciaveis.
+- Abas e formulario do telefone aceitam `sale`, `rent`, `visit` e `showcase`, respeitando os tipos habilitados no `mz_realestate`.
+- O detalhe aberto pela lista publica usa o detalhe publico; o detalhe aberto por "Meus anuncios" usa o detalhe gerenciavel, para anuncios pausados/arquivados nao virarem tela vazia por filtro publico.
+- O detalhe preserva um fallback do card clicado enquanto a API carrega ou se o retorno falhar, evitando tela vazia.
+- Criar anuncio segue sem foto/URL; se faltar propriedade retorna `property_required`; apos sucesso o app abre o anuncio criado em modo edicao.
+- Novo anuncio exige `propertyCode`; o botao Salvar nunca fica sem feedback: quando bloqueado por permissao, carregamento, lista vazia ou imovel nao selecionado, a tela mostra motivo e checklist.
+- Selecionar Imovel base re-renderiza o formulario para habilitar visualmente o Salvar; o clique ainda valida antes de chamar `createRealEstateListing`.
+- Anexo de foto continua aceitando apenas `galleryPhotoId` real. Foto sem URL publica retorna `upload_public_url_missing`.
+- Foto de anuncio publico aceita somente URL `http/https`; `nui://`, `cfx-nui://`, base64 e caminhos locais nao devem ser persistidos em anuncio publico.
+- Config compartilhada deve usar placeholder para upload; webhook/token real fica fora do repositorio.
 - O botao visual "Remover" arquiva o anuncio via status `archived`, mantendo o padrao de soft delete/status.
+- O botao publico de mensagem foi tratado como "Tenho interesse"; ele abre conversa com corretor/agencia e nao cria venda real.
 - Pendencia: validar in-game anexar foto, definir capa e confirmar refresh visual apos o evento server.
 
 ## Fase 3: reduzir complexidade de `realestate.js`

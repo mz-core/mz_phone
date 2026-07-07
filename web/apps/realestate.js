@@ -18,6 +18,7 @@ registerApp({
       realEstateSelectedListing: null,
       realEstateLoading: true,
       realEstateError: "",
+      realEstateReturnView: "list",
       realEstateActionBusy: false,
       realEstatePhotoBusy: false,
       realEstatePhotoPickerOpen: false,
@@ -71,6 +72,8 @@ function realEstateStatusLabel(status) {
 function realEstateFilterFromTab(tab) {
   if (tab === "sale") return "sale";
   if (tab === "rent") return "rent";
+  if (tab === "visit") return "visit";
+  if (tab === "showcase") return "showcase";
   return "";
 }
 
@@ -92,6 +95,61 @@ function realEstateLocationLine(listing) {
 
 function realEstateAccessAllowed(state) {
   return window.AppContract.realestate.getAccess(state).allowed === true;
+}
+
+function debugRealEstate(scope, data = {}) {
+  try {
+    if (window.localStorage?.getItem("mzPhoneDebug") !== "1") return;
+    console.debug(`[realestate:${scope}]`, data);
+  } catch (_) {}
+}
+
+let realEstateSaveTimeout = null;
+
+function keepRealEstatePhoneOpen(reason = "realestate_keep_open") {
+  window.PhoneApp?.maintainOpenIfAlreadyOpen?.(reason);
+  window.PhoneApp?.clearNotificationPreview?.(reason);
+}
+
+function clearRealEstateSaveTimeout() {
+  if (!realEstateSaveTimeout) return;
+  clearTimeout(realEstateSaveTimeout);
+  realEstateSaveTimeout = null;
+}
+
+function armRealEstateSaveTimeout() {
+  clearRealEstateSaveTimeout();
+  realEstateSaveTimeout = setTimeout(() => {
+    realEstateSaveTimeout = null;
+    const state = window.PhoneApp?.getState?.();
+    if (
+      state?.currentApp !== "realestate" ||
+      state?.realEstateView !== "form" ||
+      (state?.realEstateSaving !== true && state?.realEstateActionBusy !== true)
+    ) {
+      return;
+    }
+
+    debugRealEstate("create", {
+      action: "timeout",
+      mode: state.realEstateFormMode || "create",
+    });
+
+    window.PhoneApp.patchState({
+      realEstateSaving: false,
+      realEstateActionBusy: false,
+      realEstateLastError: "timeout",
+    });
+    keepRealEstatePhoneOpen("realestate_save_timeout");
+    notifyRealEstateError("O servidor nao respondeu ao salvar. Tente novamente.");
+    window.PhoneApp.renderCurrentApp();
+  }, 20000);
+}
+
+function preventRealEstateSubmitEvent(event) {
+  if (!event) return;
+  if (typeof event.preventDefault === "function") event.preventDefault();
+  if (typeof event.stopPropagation === "function") event.stopPropagation();
 }
 
 function renderRealEstateHeader(title, options = {}) {
@@ -140,6 +198,8 @@ function renderRealEstateList(state) {
         ${renderRealEstateTab("all", "Todos", tab)}
         ${renderRealEstateTab("sale", "Venda", tab)}
         ${renderRealEstateTab("rent", "Aluguel", tab)}
+        ${renderRealEstateTab("visit", "Visita", tab)}
+        ${renderRealEstateTab("showcase", "Vitrine", tab)}
       </div>
 
       <div class="app-content realestate-content">
@@ -235,14 +295,14 @@ function renderRealEstateDetail(state) {
   const isLoading = state.realEstateLoading === true;
   const error = realEstateSafeText(state.realEstateError);
 
-  if (isLoading) {
+  if (isLoading && !listing) {
     return renderRealEstateSimplePage(
       "Detalhes",
       renderRealEstateEmpty("loader", "Carregando anuncio..."),
     );
   }
 
-  if (error || !listing) {
+  if (!listing) {
     return renderRealEstateSimplePage(
       "Detalhes",
       renderRealEstateEmpty(
@@ -259,7 +319,9 @@ function renderRealEstateDetail(state) {
   const brokerName =
     realEstateSafeText(listing.brokerName) ||
     realEstateSafeText(listing.agencyName, "Corretor nao informado");
-  const phone = realEstateSafeText(listing.brokerPhone || listing.agencyPhone);
+  const phone = realEstateSafeText(
+    listing.brokerPhone || listing.phone || listing.agencyPhone,
+  );
   const hasCoords =
     listing.coords &&
     Number.isFinite(Number(listing.coords.x)) &&
@@ -276,6 +338,13 @@ function renderRealEstateDetail(state) {
         </div>
 
         <div class="realestate-detail-main">
+          ${
+            error
+              ? `<div class="realestate-form-note">${window.Utils.escapeHtml(realEstateErrorText(error))}</div>`
+              : isLoading
+                ? `<div class="realestate-form-note">Atualizando dados do anuncio...</div>`
+                : ""
+          }
           <div class="realestate-price realestate-detail-price">${window.Utils.escapeHtml(listing.formattedPrice || "Sob consulta")}</div>
           <h2>${window.Utils.escapeHtml(title)}</h2>
           ${
@@ -309,7 +378,7 @@ function renderRealEstateDetail(state) {
           }
           ${
             phone
-              ? `<button class="realestate-action" onclick="window.RealEstateApp.messageBroker()"><i data-lucide="message-circle"></i><span>Mensagem</span></button>`
+              ? `<button class="realestate-action" onclick="window.RealEstateApp.messageBroker()"><i data-lucide="message-circle"></i><span>Tenho interesse</span></button>`
               : ""
           }
         </div>
@@ -361,7 +430,7 @@ function renderRealEstateMine(state) {
     <div class="app-page realestate-page">
       ${renderRealEstateHeader("Meus anuncios", {
         right: `
-          <button class="app-header-icon-btn" onclick="window.RealEstateApp.openCreateForm()" aria-label="Criar anuncio">
+          <button class="app-header-icon-btn" onclick="window.RealEstateApp.openCreateForm()" aria-label="Novo anuncio">
             <i data-lucide="plus"></i>
           </button>
         `,
@@ -375,7 +444,7 @@ function renderRealEstateMine(state) {
                 (error === "broker_required" || error === "business_required")
               ? renderRealEstateEmpty(
                   "lock",
-                  "Area disponivel apenas para corretores.",
+                  "Area disponivel apenas para corretores ou imobiliarias.",
                 )
               : listings.length
                 ? `<div class="realestate-list">${listings.map(renderMyRealEstateCard).join("")}</div>`
@@ -397,7 +466,7 @@ function renderMyRealEstateCard(listing) {
   const nextStatus = status === "active" ? "paused" : "active";
   const nextLabel = status === "active" ? "Pausar" : "Ativar";
   const openAction = code
-    ? `window.RealEstateApp.openListing('${code}')`
+    ? `window.RealEstateApp.openListing('${code}', 'mine')`
     : "window.RealEstateApp.notifyInvalidListing()";
   const editAction = code
     ? `window.RealEstateApp.editListing('${code}')`
@@ -438,7 +507,10 @@ function renderRealEstateForm(state) {
   if (!canManage) {
     return renderRealEstateSimplePage(
       "Anuncio",
-      renderRealEstateEmpty("lock", "Area disponivel apenas para corretores."),
+      renderRealEstateEmpty(
+        "lock",
+        "Apenas corretores ou imobiliarias podem criar anuncios.",
+      ),
     );
   }
 
@@ -446,7 +518,11 @@ function renderRealEstateForm(state) {
   const isEdit = mode === "edit";
   const form = getRealEstateForm(state);
   const properties = window.AppContract.realestate.getProperties(state);
-  const busy = state.realEstateActionBusy === true;
+  const busy = state.realEstateActionBusy === true || state.realEstateSaving === true;
+  const createBlockMessage = getCreateBlockReason(state, form, properties, isEdit);
+  const createBlocked = createBlockMessage !== "";
+  const priceMin = form.listingType === "sale" || form.listingType === "rent" ? 1 : 0;
+  const pricePlaceholder = form.listingType === "visit" || form.listingType === "showcase" ? "0" : "350000";
 
   if (state.realEstateLoading && isEdit) {
     return renderRealEstateSimplePage(
@@ -457,7 +533,7 @@ function renderRealEstateForm(state) {
 
   return `
     <div class="app-page realestate-page">
-      ${renderRealEstateHeader(isEdit ? "Editar anuncio" : "Criar anuncio")}
+      ${renderRealEstateHeader(isEdit ? "Editar anuncio" : "Novo anuncio")}
 
       <div class="app-content realestate-form">
         <label class="realestate-field">
@@ -465,6 +541,8 @@ function renderRealEstateForm(state) {
           <select onchange="window.RealEstateApp.updateForm('listingType', this.value)">
             <option value="sale" ${form.listingType === "sale" ? "selected" : ""}>Venda</option>
             <option value="rent" ${form.listingType === "rent" ? "selected" : ""}>Aluguel</option>
+            <option value="visit" ${form.listingType === "visit" ? "selected" : ""}>Visita</option>
+            <option value="showcase" ${form.listingType === "showcase" ? "selected" : ""}>Vitrine</option>
           </select>
         </label>
 
@@ -472,26 +550,26 @@ function renderRealEstateForm(state) {
           isEdit
             ? `
               <div class="realestate-field-static">
-                <span>Imovel</span>
+                <span>Imovel base</span>
                 <strong>${window.Utils.escapeHtml(form.propertyCode || "Ja definido")}</strong>
               </div>
             `
-            : renderPropertySelect(properties, form.propertyCode)
+            : renderPropertySelect(properties, form.propertyCode, state.realEstatePropertiesLoading === true)
         }
 
         <label class="realestate-field">
           <span>Titulo</span>
-          <input value="${window.Utils.escapeHtmlAttr(form.title)}" maxlength="80" oninput="window.RealEstateApp.updateForm('title', this.value)" placeholder="Casa a venda" />
+          <input value="${window.Utils.escapeHtmlAttr(form.title)}" maxlength="80" oninput="window.RealEstateApp.updateForm('title', this.value)" placeholder="Titulo do anuncio" />
         </label>
 
         <label class="realestate-field">
           <span>Descricao</span>
-          <textarea maxlength="800" oninput="window.RealEstateApp.updateForm('description', this.value)" placeholder="Descricao do imovel">${window.Utils.escapeHtml(form.description)}</textarea>
+          <textarea maxlength="800" oninput="window.RealEstateApp.updateForm('description', this.value)" placeholder="Descricao do anuncio">${window.Utils.escapeHtml(form.description)}</textarea>
         </label>
 
         <label class="realestate-field">
           <span>Preco</span>
-          <input type="number" min="1" value="${window.Utils.escapeHtmlAttr(form.price)}" oninput="window.RealEstateApp.updateForm('price', this.value)" placeholder="350000" />
+          <input type="number" min="${priceMin}" value="${window.Utils.escapeHtmlAttr(form.price)}" oninput="window.RealEstateApp.updateForm('price', this.value)" placeholder="${pricePlaceholder}" />
         </label>
 
         <label class="realestate-field">
@@ -509,9 +587,15 @@ function renderRealEstateForm(state) {
           <span>Exibir placa no mundo</span>
         </label>
 
-        ${isEdit ? renderRealEstatePhotoManager(state) : `<div class="realestate-form-note">Salve o anuncio para adicionar fotos.</div>`}
+        ${
+          createBlocked
+            ? `${renderCreateBlockNote(createBlockMessage)}${renderCreateChecklist()}`
+            : isEdit
+              ? renderRealEstatePhotoManager(state)
+              : `<div class="realestate-form-note">Salve o anuncio para adicionar fotos.</div>`
+        }
 
-        <button class="realestate-save" onclick="window.RealEstateApp.saveForm()" ${busy ? "disabled" : ""}>
+        <button type="button" data-realestate-action="save-listing" class="realestate-save ${createBlocked ? "is-disabled" : ""}" onclick="window.RealEstateApp.saveForm(event)" ${busy ? "disabled" : ""} aria-disabled="${createBlocked ? "true" : "false"}">
           <i data-lucide="${busy ? "loader" : "save"}"></i>
           <span>${busy ? "Salvando..." : "Salvar"}</span>
         </button>
@@ -556,6 +640,19 @@ function getCurrentEditingListingCode(state = window.PhoneApp.getState()) {
     listingCodeFrom(state.realEstateForm) ||
     String(state.realEstateEditingListingCode || "").trim()
   );
+}
+
+function findRealEstateListingFallback(state, listingCode, source) {
+  const code = String(listingCode || "").trim();
+  if (!code) return null;
+
+  const sourceName = String(source || "").trim();
+  const fromMine = sourceName === "mine" || source === true;
+  const listings = fromMine
+    ? window.AppContract.realestate.getMine(state)
+    : window.AppContract.realestate.getListings(state);
+
+  return listings.find((listing) => listingCodeFrom(listing) === code) || null;
 }
 
 function currentListingForMedia(state, listingCode) {
@@ -681,12 +778,22 @@ function renderRealEstateGalleryOption(photo, busy) {
   `;
 }
 
-function renderPropertySelect(properties, selectedCode) {
+function renderPropertySelect(properties, selectedCode, loading = false) {
+  if (loading && !properties.length) {
+    return `
+      <div class="realestate-field-static">
+        <span>Imovel base</span>
+        <strong>Carregando imoveis disponiveis...</strong>
+      </div>
+    `;
+  }
+
   if (!properties.length) {
     return `
       <div class="realestate-field-static">
-        <span>Imovel</span>
-        <strong>Voce nao possui imoveis disponiveis para anuncio.</strong>
+        <span>Imovel base</span>
+        <strong>Nenhum imovel disponivel para anunciar.</strong>
+        <small>Cadastre/libere um imovel no sistema imobiliario antes de criar anuncio.</small>
       </div>
     `;
   }
@@ -712,6 +819,27 @@ function renderPropertySelect(properties, selectedCode) {
   `;
 }
 
+function renderCreateBlockNote(message) {
+  return `
+    <div class="realestate-form-note is-warning">
+      ${window.Utils.escapeHtml(message)}
+    </div>
+  `;
+}
+
+function renderCreateChecklist() {
+  return `
+    <div class="realestate-create-checklist">
+      <div>Para criar um anuncio:</div>
+      <ol>
+        <li>O imovel precisa existir no mz_houses.</li>
+        <li>O imovel precisa estar ativo/listavel.</li>
+        <li>Voce precisa ser corretor/imobiliaria autorizada.</li>
+      </ol>
+    </div>
+  `;
+}
+
 function renderRealEstateSimplePage(title, content) {
   return `
     <div class="app-page realestate-page">
@@ -724,8 +852,27 @@ function renderRealEstateSimplePage(title, content) {
 function realEstateErrorText(error) {
   if (error === "realestate_unavailable")
     return "Sistema de imoveis indisponivel.";
+  if (error === "broker_required" || error === "business_required")
+    return "Apenas corretores ou imobiliarias podem criar anuncios.";
+  if (error === "properties_failed" || error === "houses_unavailable")
+    return "Nao foi possivel carregar os imoveis base.";
+  if (error === "property_not_found" || error === "house_not_found")
+    return "Imovel base nao encontrado.";
+  if (
+    error === "not_listable" ||
+    error === "property_not_advertisable" ||
+    error === "disabled" ||
+    error === "archived" ||
+    error === "hidden" ||
+    error === "not_residential" ||
+    error === "not_player_property" ||
+    error === "org_property"
+  ) {
+    return "Este imovel nao esta liberado para anuncio.";
+  }
   if (error === "listing_unavailable" || error === "listing_not_found")
-    return "Anuncio indisponivel.";
+    return "Nao foi possivel carregar este anuncio.";
+  if (error === "invalid_listing") return "Anuncio invalido.";
   if (error === "rate_limited")
     return "Aguarde um instante para tentar de novo.";
   return "Nao foi possivel carregar os imoveis.";
@@ -740,6 +887,7 @@ function getRealEstateForm(state) {
 
   return {
     listingType: form.listingType || "sale",
+    listingCode: form.listingCode || "",
     propertyCode: form.propertyCode || "",
     title: form.title || "",
     description: form.description || "",
@@ -776,21 +924,75 @@ function notifyRealEstateError(message) {
   }
 }
 
+function notifyRealEstateSuccess(message) {
+  const isOpen = window.PhoneApp?.isActuallyOpen?.() === true;
+  const state = window.PhoneApp?.getState?.();
+  const isActiveApp = state?.currentApp === "realestate";
+
+  if (isOpen && isActiveApp) {
+    keepRealEstatePhoneOpen("realestate_success_before");
+  }
+
+  window.PhoneUI?.notify?.({
+    type: "success",
+    title: "Imoveis",
+    message,
+    preventPreview: true,
+    keepPhoneOpen: true,
+    scope: "in-app",
+  });
+
+  if (isOpen && isActiveApp) {
+    keepRealEstatePhoneOpen("realestate_success_after");
+  }
+}
+
 function validateRealEstateForm(form, isEdit) {
-  if (form.listingType !== "sale" && form.listingType !== "rent") {
-    return "Escolha venda ou aluguel.";
+  const allowedTypes = ["sale", "rent", "visit", "showcase"];
+  if (!allowedTypes.includes(form.listingType)) {
+    return "Escolha venda, aluguel, visita ou vitrine.";
   }
 
   if (!isEdit && !form.propertyCode) {
-    return "Selecione um imovel.";
+    return "Selecione um imovel para criar o anuncio.";
   }
 
   if (String(form.title || "").trim().length < 3) {
     return "Informe um titulo com pelo menos 3 letras.";
   }
 
-  if (Number(form.price) <= 0) {
+  const price = Number(form.price || 0);
+  if ((form.listingType === "sale" || form.listingType === "rent") && price <= 0) {
     return "Informe um preco positivo.";
+  }
+  if (price < 0) {
+    return "Informe um preco valido.";
+  }
+
+  return "";
+}
+
+function getCreateBlockReason(state, form, properties, isEdit) {
+  if (isEdit) return "";
+
+  if (!realEstateAccessAllowed(state)) {
+    return "Apenas corretores ou imobiliarias podem criar anuncios.";
+  }
+
+  if (state.realEstatePropertiesLoading === true && !properties.length) {
+    return "Carregando imoveis disponiveis...";
+  }
+
+  if (state.realEstatePropertiesError) {
+    return realEstateErrorText(state.realEstatePropertiesError);
+  }
+
+  if (!properties.length) {
+    return "Nenhum imovel disponivel para anunciar. Cadastre/libere um imovel no sistema imobiliario antes de criar anuncio.";
+  }
+
+  if (!form.propertyCode) {
+    return "Selecione um Imovel base.";
   }
 
   return "";
@@ -837,6 +1039,13 @@ window.RealEstateApp = {
 
   refresh() {
     const state = window.PhoneApp.getState();
+    if (state.realEstateView === "detail") {
+      const code = listingCodeFrom(state.realEstateSelectedListing);
+      if (code) {
+        this.openListing(code, state.realEstateReturnView === "mine" ? "mine" : "public");
+        return;
+      }
+    }
     if (state.realEstateView === "mine") {
       loadBrokerArea();
       return;
@@ -849,6 +1058,7 @@ window.RealEstateApp = {
       realEstateView: "mine",
       realEstateSelectedListing: null,
       realEstateError: "",
+      realEstateReturnView: "mine",
       realEstatePhotoPickerOpen: false,
     });
     loadBrokerArea();
@@ -857,12 +1067,24 @@ window.RealEstateApp = {
   openCreateForm() {
     const state = window.PhoneApp.getState();
     const access = window.AppContract.realestate.getAccess(state);
+    if (access.allowed !== true) {
+      notifyRealEstateError("Apenas corretores ou imobiliarias podem criar anuncios.");
+      return;
+    }
 
     window.PhoneApp.patchState({
       realEstateView: "form",
       realEstateFormMode: "create",
       realEstateSelectedListing: null,
+      realEstateEditingListingCode: "",
+      realEstateReturnView: "mine",
       realEstateError: "",
+      realEstatePropertiesLoading: true,
+      realEstatePropertiesError: "",
+      realEstateActionBusy: false,
+      realEstateSaving: false,
+      realEstateLastError: null,
+      realEstatePhotoBusy: false,
       realEstatePhotoPickerOpen: false,
       realEstateForm: {
         listingType: "sale",
@@ -892,6 +1114,7 @@ window.RealEstateApp = {
       realEstateFormMode: "edit",
       realEstateEditingListingCode: code,
       realEstateSelectedListing: null,
+      realEstateReturnView: "mine",
       realEstateLoading: true,
       realEstateError: "",
       realEstatePhotoPickerOpen: false,
@@ -912,35 +1135,171 @@ window.RealEstateApp = {
         [key]: value,
       },
     });
+
+    if (key === "propertyCode" || key === "listingType") {
+      window.PhoneApp.renderCurrentApp();
+    }
   },
 
-  async saveForm() {
+  async saveForm(event) {
+    preventRealEstateSubmitEvent(event);
+    keepRealEstatePhoneOpen("realestate_save_click");
+
     const state = window.PhoneApp.getState();
     const isEdit = state.realEstateFormMode === "edit";
+    if (state.realEstateSaving === true || state.realEstateActionBusy === true) {
+      debugRealEstate("create", {
+        action: "ignored busy click",
+        mode: isEdit ? "edit" : "create",
+      });
+      return;
+    }
+
     const form = getRealEstateForm(state);
+    const properties = window.AppContract.realestate.getProperties(state);
+    const blockReason = getCreateBlockReason(state, form, properties, isEdit);
+    debugRealEstate("create", {
+      action: "save click",
+      mode: isEdit ? "edit" : "create",
+      propertyCode: form.propertyCode,
+      blocked: blockReason || false,
+    });
+
+    if (blockReason) {
+      notifyRealEstateError(blockReason);
+      return;
+    }
+
     const validation = validateRealEstateForm(form, isEdit);
 
     if (validation) {
+      debugRealEstate("create", {
+        action: "validation failed",
+        reason: validation,
+        propertyCode: form.propertyCode,
+      });
       notifyRealEstateError(validation);
       return;
     }
 
-    window.PhoneApp.patchState({ realEstateActionBusy: true });
-    window.PhoneApp.renderCurrentApp();
+    debugRealEstate("create", {
+      action: "validation ok",
+      propertyCode: form.propertyCode,
+      listingType: form.listingType,
+    });
 
-    if (isEdit) {
-      const code = getCurrentEditingListingCode(state);
-      if (!code) {
-        notifyRealEstateError("Anuncio nao encontrado.");
-        window.PhoneApp.patchState({ realEstateActionBusy: false });
-        window.PhoneApp.renderCurrentApp();
+    window.PhoneApp.patchState({
+      isOpen: true,
+      realEstateActionBusy: true,
+      realEstateSaving: true,
+      realEstateLastError: null,
+    });
+    keepRealEstatePhoneOpen("realestate_save_before_render");
+    window.PhoneApp.renderCurrentApp();
+    keepRealEstatePhoneOpen("realestate_save_after_render");
+    armRealEstateSaveTimeout();
+
+    try {
+      if (isEdit) {
+        const code = getCurrentEditingListingCode(state);
+        if (!code) {
+          clearRealEstateSaveTimeout();
+          notifyRealEstateError("Anuncio nao encontrado.");
+          window.PhoneApp.patchState({
+            realEstateActionBusy: false,
+            realEstateSaving: false,
+            realEstateLastError: "invalid_listing",
+          });
+          keepRealEstatePhoneOpen("realestate_save_invalid_listing");
+          window.PhoneApp.renderCurrentApp();
+          return;
+        }
+        const response = await window.PhoneAPI?.updateRealEstateListing?.(code, form);
+        if (response?.ok === false) {
+          clearRealEstateSaveTimeout();
+          debugRealEstate("create", {
+            action: "response ok=false",
+            mode: "edit",
+            error: response.error || "update_failed",
+          });
+          notifyRealEstateError(response.message || realEstateErrorText(response.error) || "Nao foi possivel atualizar o anuncio.");
+          window.PhoneApp.patchState({
+            realEstateActionBusy: false,
+            realEstateSaving: false,
+            realEstateLastError: response.error || "update_failed",
+          });
+          keepRealEstatePhoneOpen("realestate_update_callback_error");
+          window.PhoneApp.renderCurrentApp();
+        } else if (!response || response.ok !== true) {
+          clearRealEstateSaveTimeout();
+          notifyRealEstateError("Nao foi possivel enviar a atualizacao.");
+          window.PhoneApp.patchState({
+            realEstateActionBusy: false,
+            realEstateSaving: false,
+            realEstateLastError: "request_failed",
+          });
+          keepRealEstatePhoneOpen("realestate_update_request_failed");
+          window.PhoneApp.renderCurrentApp();
+        }
         return;
       }
-      await window.PhoneAPI?.updateRealEstateListing?.(code, form);
-      return;
-    }
 
-    await window.PhoneAPI?.createRealEstateListing?.(form);
+      debugRealEstate("create", {
+        action: "sending payload",
+        propertyCode: form.propertyCode,
+        listingType: form.listingType,
+      });
+      const response = await window.PhoneAPI?.createRealEstateListing?.(form);
+      if (response?.ok === false) {
+        clearRealEstateSaveTimeout();
+        debugRealEstate("create", {
+          action: "response ok=false",
+          mode: "create",
+          error: response.error || "create_failed",
+        });
+        notifyRealEstateError(response.message || realEstateErrorText(response.error) || "Nao foi possivel criar o anuncio.");
+        window.PhoneApp.patchState({
+          realEstateActionBusy: false,
+          realEstateSaving: false,
+          realEstateLastError: response.error || "create_failed",
+        });
+        keepRealEstatePhoneOpen("realestate_create_callback_error");
+        window.PhoneApp.renderCurrentApp();
+      } else if (!response || response.ok !== true) {
+        clearRealEstateSaveTimeout();
+        notifyRealEstateError("Nao foi possivel enviar o anuncio.");
+        window.PhoneApp.patchState({
+          realEstateActionBusy: false,
+          realEstateSaving: false,
+          realEstateLastError: "request_failed",
+        });
+        keepRealEstatePhoneOpen("realestate_create_request_failed");
+        window.PhoneApp.renderCurrentApp();
+      }
+    } catch (error) {
+      clearRealEstateSaveTimeout();
+      console.error("[realestate:create] save failed", error);
+      window.PhoneApp.patchState({
+        realEstateActionBusy: false,
+        realEstateSaving: false,
+        realEstateLastError: "request_failed",
+      });
+      keepRealEstatePhoneOpen("realestate_save_exception");
+      notifyRealEstateError("Nao foi possivel enviar o anuncio.");
+      window.PhoneApp.renderCurrentApp();
+    }
+  },
+
+  clearSaveTimeout() {
+    clearRealEstateSaveTimeout();
+  },
+
+  keepPhoneOpen(reason) {
+    keepRealEstatePhoneOpen(reason || "realestate_keep_open_external");
+  },
+
+  notifySaveSuccess(message) {
+    notifyRealEstateSuccess(message || "Anuncio salvo.");
   },
 
   async setStatus(listingCode, status) {
@@ -974,21 +1333,34 @@ window.RealEstateApp = {
     });
   },
 
-  async openListing(listingCode) {
+  async openListing(listingCode, source = "public") {
     const code = String(listingCode || "").trim();
     if (!code) {
       this.notifyInvalidListing();
       return;
     }
+    const sourceName = String(source || "").trim();
+    const fromMine = sourceName === "mine" || source === true;
+    const fallbackListing = findRealEstateListingFallback(
+      window.PhoneApp.getState(),
+      code,
+      source,
+    );
 
     window.PhoneApp.patchState({
       realEstateView: "detail",
-      realEstateSelectedListing: null,
+      realEstateSelectedListing: fallbackListing,
+      realEstateReturnView: fromMine ? "mine" : "list",
       realEstateLoading: true,
       realEstateError: "",
       realEstatePhotoPickerOpen: false,
     });
     window.PhoneApp.renderCurrentApp();
+
+    if (fromMine) {
+      await window.PhoneAPI?.getMyRealEstateListing?.(code);
+      return;
+    }
 
     await window.PhoneAPI?.getRealEstateListing?.(code);
   },
@@ -997,13 +1369,17 @@ window.RealEstateApp = {
     const state = window.PhoneApp.getState();
 
     if (state.realEstateView === "detail") {
+      const returnView = state.realEstateReturnView === "mine" ? "mine" : "list";
       window.PhoneApp.patchState({
-        realEstateView: "list",
+        realEstateView: returnView,
         realEstateSelectedListing: null,
         realEstateError: "",
         realEstatePhotoPickerOpen: false,
       });
       window.PhoneApp.renderCurrentApp();
+      if (returnView === "mine") {
+        loadBrokerArea();
+      }
       return;
     }
 
@@ -1060,7 +1436,7 @@ window.RealEstateApp = {
   async callBroker() {
     const listing = window.PhoneApp.getState().realEstateSelectedListing;
     const phone = String(
-      listing?.brokerPhone || listing?.agencyPhone || "",
+      listing?.brokerPhone || listing?.phone || listing?.agencyPhone || "",
     ).trim();
     if (!phone) return;
 
@@ -1071,7 +1447,7 @@ window.RealEstateApp = {
     const state = window.PhoneApp.getState();
     const listing = state.realEstateSelectedListing;
     const phone = String(
-      listing?.brokerPhone || listing?.agencyPhone || "",
+      listing?.brokerPhone || listing?.phone || listing?.agencyPhone || "",
     ).trim();
     if (!phone) return;
 

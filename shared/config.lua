@@ -6,6 +6,7 @@ Config.Debug = {
     PrintClient = true,
     NuiMessages = false,
     RealEstatePhotos = false,
+    RealEstateCreate = false,
     AllowCommand = true,
     AdminPermission = 'mz_phone.debug'
 }
@@ -256,7 +257,7 @@ Config.Phone = {
                 Token = ''
             },
             DiscordDirect = {
-                WebhookUrl = 'https://discord.com/api/webhooks/1513312977292497066/uii9XvB1c_mR9DpJwjdCzzUPg6hLGAW0gXc_JPzsLYeQT-S8cZ6MPgOQry_YTtvq5vtK'
+                WebhookUrl = ''
             },
             DiscordProxy = {
                 Url = '',
@@ -282,6 +283,11 @@ Config.Phone = {
             Volume = 0.35
         }
     }
+}
+
+Config.RealEstate = Config.RealEstate or {}
+Config.RealEstate.Photos = Config.RealEstate.Photos or {
+    MaxPublicImageUrlLength = 3000
 }
 
 Config.Framework = {

@@ -82,10 +82,70 @@ local function isGalleryEnabled()
     return galleryConfig().Enabled ~= false
 end
 
+local function publicImageUrlMaxLength()
+    local realestate = Config.RealEstate or {}
+    local photos = realestate.Photos or {}
+    return tonumber(photos.MaxPublicImageUrlLength) or 3000
+end
+
+local function cleanUrlText(value)
+    local text = tostring(value or '')
+    text = text:gsub('[%z\1-\31\127]', '')
+    text = text:gsub('^%s+', ''):gsub('%s+$', '')
+    return text
+end
+
+local function inspectPublicHttpUrl(value, maxLength)
+    local url = cleanUrlText(value)
+    maxLength = tonumber(maxLength) or publicImageUrlMaxLength()
+
+    if url == '' then
+        return nil, 'empty'
+    end
+
+    if maxLength > 0 and #url > maxLength then
+        return nil, 'too_long'
+    end
+
+    if url:find('[%s<>"]') or url:find('%.%.', 1, true) then
+        return nil, 'invalid_chars'
+    end
+
+    if url:find('^data:', 1, false) then
+        return nil, 'base64_not_allowed'
+    end
+
+    local scheme = url:match('^([%a][%w+%-%.]*):')
+    if not scheme then
+        return nil, 'missing_scheme'
+    end
+
+    scheme = scheme:lower()
+    if scheme ~= 'http' and scheme ~= 'https' then
+        return nil, 'scheme_not_allowed'
+    end
+
+    local host = url:match('^[%a][%w+%-%.]*://([^/%?#]+)')
+    if not host or host == '' then
+        return nil, 'missing_host'
+    end
+
+    return {
+        url = url,
+        scheme = scheme,
+        host = host,
+        length = #url
+    }
+end
+
 local function validImageUrl(value)
-    value = Security.SanitizeText(value, 1000)
+    value = cleanUrlText(value)
     if value == '' then
         return false, 'invalid_url'
+    end
+
+    if #value > publicImageUrlMaxLength() then
+        return false, 'too_long'
     end
 
     if value:find('[%s<>"]') then
@@ -115,7 +175,7 @@ local function validImageUrl(value)
 end
 
 local function sanitizeOptionalImageUrl(value)
-    value = Security.SanitizeText(value or '', 1000)
+    value = cleanUrlText(value)
     if value == '' then
         return ''
     end
@@ -129,18 +189,15 @@ local function sanitizeOptionalImageUrl(value)
 end
 
 local function validHttpUrl(value)
-    value = Security.SanitizeText(value or '', 1000)
-    if value == '' or value:find('[%s<>"]') then
+    local info, err = inspectPublicHttpUrl(value)
+    if not info then
+        if err == 'scheme_not_allowed' or err == 'too_long' or err == 'missing_scheme' then
+            return false, err
+        end
         return false, 'invalid_url'
     end
 
-    local scheme = value:match('^([%a][%w+%-%.]*):')
-    scheme = scheme and scheme:lower() or ''
-    if scheme ~= 'http' and scheme ~= 'https' then
-        return false, 'scheme_not_allowed'
-    end
-
-    return true, nil, value
+    return true, nil, info.url, info
 end
 
 local function normalizeMessageType(value)
@@ -412,14 +469,21 @@ local function realEstatePhotoDebugEnabled()
 end
 
 local function urlDebugSummary(value)
-    local text = tostring(value or '')
+    local text = cleanUrlText(value)
     local scheme = text:match('^([%a][%w+%-%.]*):') or 'relative'
-    return ('scheme=%s len=%s'):format(tostring(scheme):lower(), tostring(#text))
+    local host = text:match('^[%a][%w+%-%.]*://([^/%?#]+)') or ''
+    return ('scheme=%s host=%s len=%s'):format(tostring(scheme):lower(), tostring(host), tostring(#text))
 end
 
 local function realEstatePhotoDebug(source, message)
     if realEstatePhotoDebugEnabled() then
         Security.Log('realestate:photo', source, message, true)
+    end
+end
+
+local function realEstateCreateDebug(source, message)
+    if type(Config.Debug) == 'table' and Config.Debug.RealEstateCreate == true then
+        Security.Log('realestate:create', source, message, true)
     end
 end
 
@@ -438,17 +502,13 @@ local function normalizeRealEstateCoords(coords)
 end
 
 local function sanitizeRealEstateImageUrl(value)
-    value = Security.SanitizeText(value or '', 1000):gsub('\\', '/')
+    value = Security.SanitizeText(value or '', 1500):gsub('\\', '/')
     if value == '' or value:find('[%s<>"]') or value:find('%.%.', 1, true) then
         return ''
     end
 
-    if value:find('^https?://') or value:find('^nui://') then
+    if value:find('^https?://') then
         return value
-    end
-
-    if value:find('^uploads/') then
-        return ('nui://mz_realestate/%s'):format(value)
     end
 
     return ''
@@ -488,6 +548,12 @@ local function normalizeRealEstatePhotos(photos)
     return out, cover
 end
 
+local function realEstatePhotoList(listing)
+    if type(listing.photos) == 'table' then return listing.photos end
+    if type(listing.images) == 'table' then return listing.images end
+    return {}
+end
+
 local function realEstateLocationValue(listing, key)
     local metadata = type(listing.metadata) == 'table' and listing.metadata or {}
     local location = type(metadata.location) == 'table' and metadata.location or {}
@@ -508,17 +574,45 @@ local function normalizeRealEstateListing(listing, includeDetails)
     local listingCode = Security.SanitizeText(listing.listingCode or listing.listing_code or listing.code or listing.id or '', 64)
     if listingCode == '' then return nil end
 
-    local listingType = Security.SanitizeText(listing.listingType or listing.listing_type or '', 24)
-    local price = compactNumber(listing.price)
-    local photos, coverImage = normalizeRealEstatePhotos(listing.photos)
+    local listingType = Security.SanitizeText(listing.listingType or listing.listing_type or listing.type or '', 24)
+    local price = compactNumber(listing.price or listing.value)
+    local photos, coverImage = normalizeRealEstatePhotos(realEstatePhotoList(listing))
     local explicitCover = sanitizeRealEstateImageUrl(
-        listing.coverImage or listing.cover_image or listing.coverUrl or listing.cover_url or ''
+        listing.coverImage
+            or listing.cover_image
+            or listing.coverUrl
+            or listing.cover_url
+            or listing.imageUrl
+            or listing.image_url
+            or listing.thumbnailUrl
+            or listing.thumbnail_url
+            or ''
     )
     if explicitCover ~= '' then
         coverImage = explicitCover
     end
-    local brokerName = Security.SanitizeText(listing.brokerName or listing.signBrokerName or listing.agencyName or '', 120)
-    local brokerPhone = Security.SanitizeText(listing.brokerPhone or listing.signPhone or listing.agencyPhone or '', 40)
+    local brokerName = Security.SanitizeText(
+        listing.brokerName
+            or listing.broker_name
+            or listing.signBrokerName
+            or listing.sign_broker_name
+            or listing.agencyName
+            or listing.agency_name
+            or '',
+        120
+    )
+    local brokerPhone = Security.SanitizeText(
+        listing.brokerPhone
+            or listing.broker_phone
+            or listing.signPhone
+            or listing.sign_phone
+            or listing.phone
+            or listing.contact_phone
+            or listing.agencyPhone
+            or listing.agency_phone
+            or '',
+        40
+    )
     local metadata = type(listing.metadata) == 'table' and listing.metadata or {}
     local address = realEstateLocationValue(listing, 'address')
     local neighborhood = realEstateLocationValue(listing, 'neighborhood')
@@ -527,28 +621,31 @@ local function normalizeRealEstateListing(listing, includeDetails)
     local out = {
         listingCode = listingCode,
         propertyCode = Security.SanitizeText(listing.propertyCode or listing.property_code or '', 64),
-        title = Security.SanitizeText(listing.title or listing.signLabel or 'Imovel anunciado', 120),
+        title = Security.SanitizeText(listing.title or listing.signLabel or 'Imovel sem titulo', 120),
         description = Security.SanitizeText(listing.description or '', 1000),
         listingType = listingType,
         typeLabel = Security.SanitizeText(listing.typeLabel or '', 40),
         price = price,
-        formattedPrice = Security.SanitizeText(listing.priceText or '', 40) ~= '' and Security.SanitizeText(listing.priceText, 40) or formatCurrency(price),
+        formattedPrice = Security.SanitizeText(listing.priceText or listing.price_text or listing.formattedPrice or '', 40) ~= ''
+            and Security.SanitizeText(listing.priceText or listing.price_text or listing.formattedPrice, 40)
+            or formatCurrency(price),
         coverImage = coverImage,
         brokerName = brokerName,
         brokerPhone = brokerPhone,
-        agencyName = Security.SanitizeText(listing.agencyName or '', 120),
-        agencyPhone = Security.SanitizeText(listing.agencyPhone or '', 40),
+        agencyName = Security.SanitizeText(listing.agencyName or listing.agency_name or '', 120),
+        agencyPhone = Security.SanitizeText(listing.agencyPhone or listing.agency_phone or '', 40),
+        phone = brokerPhone,
         neighborhood = neighborhood,
         city = city,
         address = address,
         status = Security.SanitizeText(listing.status or 'active', 24),
         showSign = listing.showSign == true or listing.show_sign == true or listing.show_sign == 1,
-        signPhone = Security.SanitizeText(listing.signPhone or listing.sign_phone or listing.brokerPhone or '', 40),
-        signBrokerName = Security.SanitizeText(listing.signBrokerName or listing.sign_broker_name or listing.brokerName or '', 120),
+        signPhone = Security.SanitizeText(listing.signPhone or listing.sign_phone or listing.brokerPhone or listing.broker_phone or listing.phone or '', 40),
+        signBrokerName = Security.SanitizeText(listing.signBrokerName or listing.sign_broker_name or listing.brokerName or listing.broker_name or '', 120),
         createdAt = Security.SanitizeText(listing.createdAt or listing.created_at or '', 40),
         updatedAt = Security.SanitizeText(listing.updatedAt or listing.updated_at or '', 40),
         propertyLabel = tableText(type(listing.property) == 'table' and listing.property or {}, 'label', 'code'),
-        coords = normalizeRealEstateCoords(listing.coords),
+        coords = normalizeRealEstateCoords(listing.coords or listing.location or listing.position),
         metadata = metadata
     }
 
@@ -611,7 +708,7 @@ end
 local function realEstatePhonePayload(data)
     data = type(data) == 'table' and data or {}
     local listingType = Security.SanitizeText(data.listingType or data.listing_type or '', 24)
-    if listingType ~= 'sale' and listingType ~= 'rent' then
+    if listingType ~= 'sale' and listingType ~= 'rent' and listingType ~= 'visit' and listingType ~= 'showcase' then
         listingType = ''
     end
 
@@ -627,11 +724,33 @@ local function realEstatePhonePayload(data)
     }
 end
 
+local function realEstateActionResult(raw)
+    raw = type(raw) == 'table' and raw or {}
+    local listing = type(raw.listing) == 'table' and raw.listing or raw
+    local listingCode = Security.SanitizeText(
+        raw.listingCode
+            or raw.listing_code
+            or raw.code
+            or listing.listingCode
+            or listing.listing_code
+            or listing.code
+            or '',
+        64
+    )
+
+    return {
+        ok = true,
+        listingCode = listingCode,
+        listing = listing,
+        status = Security.SanitizeText(raw.status or listing.status or '', 30)
+    }
+end
+
 local function realEstateFilterType(filters)
     filters = type(filters) == 'table' and filters or {}
     local listingType = Security.SanitizeText(filters.listingType or filters.type or '', 24)
 
-    if listingType == 'sale' or listingType == 'rent' then
+    if listingType == 'sale' or listingType == 'rent' or listingType == 'visit' or listingType == 'showcase' then
         return listingType
     end
 
@@ -942,12 +1061,29 @@ function MZPhoneServer.Service.CreateRealEstateListing(source, data)
         return nil, err
     end
 
-    local ok, resultOrErr = realEstateSafeExport('CreateListingFromPhone', source, realEstatePhonePayload(data))
+    local payload = realEstatePhonePayload(data)
+    realEstateCreateDebug(source, ('source=%s citizenid=%s propertyCode=%s listingType=%s'):format(
+        tostring(source),
+        Security.Mask(identity.citizenid),
+        tostring(payload.propertyCode),
+        tostring(payload.listingType)
+    ))
+
+    if payload.propertyCode == '' then
+        realEstateCreateDebug(source, 'result ok=false error=property_required')
+        return nil, 'property_required'
+    end
+
+    local ok, resultOrErr = realEstateSafeExport('CreateListingFromPhone', source, payload)
     if ok ~= true then
+        realEstateCreateDebug(source, ('result ok=false error=%s'):format(tostring(resultOrErr or 'create_failed')))
         return nil, resultOrErr or 'create_failed'
     end
 
-    return resultOrErr or {}
+    realEstateCreateDebug(source, ('result ok=true listingCode=%s'):format(
+        tostring(type(resultOrErr) == 'table' and resultOrErr.listingCode or '')
+    ))
+    return realEstateActionResult(resultOrErr)
 end
 
 function MZPhoneServer.Service.UpdateRealEstateListing(source, listingCode, data)
@@ -970,7 +1106,7 @@ function MZPhoneServer.Service.UpdateRealEstateListing(source, listingCode, data
         return nil, resultOrErr or 'update_failed'
     end
 
-    return resultOrErr or {}
+    return realEstateActionResult(resultOrErr)
 end
 
 function MZPhoneServer.Service.SetRealEstateListingStatus(source, listingCode, status)
@@ -986,7 +1122,7 @@ function MZPhoneServer.Service.SetRealEstateListingStatus(source, listingCode, s
     listingCode = Security.SanitizeText(listingCode or '', 64)
     status = Security.SanitizeText(status or '', 24)
     if listingCode == '' then return nil, 'invalid_listing' end
-    if status ~= 'active' and status ~= 'paused' and status ~= 'archived' and status ~= 'deleted' then
+    if status ~= 'active' and status ~= 'paused' and status ~= 'archived' then
         return nil, 'invalid_status'
     end
 
@@ -1072,31 +1208,64 @@ function MZPhoneServer.Service.AttachGalleryPhotoToRealEstateListing(source, lis
         return nil, 'photo_not_owned'
     end
 
-    realEstatePhotoDebug(source, ('gallery found galleryPhotoId=%s owner=%s url=%s'):format(
+    realEstatePhotoDebug(source, ('gallery found galleryPhotoId=%s ownerOk=true source=%s imageUrlPresent=%s thumbPresent=%s imageUrl=%s thumbUrl=%s'):format(
         tostring(galleryPhotoId),
-        Security.Mask(photo.owner_citizenid),
-        urlDebugSummary(photo.image_url)
+        Security.SanitizeText(photo.source or '', 32),
+        tostring(cleanUrlText(photo.image_url) ~= ''),
+        tostring(cleanUrlText(photo.thumbnail_url) ~= ''),
+        urlDebugSummary(photo.image_url),
+        urlDebugSummary(photo.thumbnail_url)
     ))
 
-    local okUrl, urlErr, imageUrl = validImageUrl(photo.image_url)
+    local rawImageUrl = cleanUrlText(photo.image_url)
+    local okUrl, urlErr, imageUrl, imageInfo = validHttpUrl(rawImageUrl)
+    local selectedUrlField = 'image_url'
+
     if not okUrl then
-        realEstatePhotoDebug(source, ('phone url rejected galleryPhotoId=%s error=%s url=%s'):format(
+        local rawThumbnailUrl = cleanUrlText(photo.thumbnail_url)
+        local okThumb, thumbErr, thumbUrl, thumbInfo = validHttpUrl(rawThumbnailUrl)
+        realEstatePhotoDebug(source, ('image_url rejected galleryPhotoId=%s error=%s %s; thumbnail check error=%s %s'):format(
             tostring(galleryPhotoId),
-            tostring(urlErr or 'invalid_image_url'),
-            urlDebugSummary(photo.image_url)
+            tostring(urlErr or 'invalid_url'),
+            urlDebugSummary(rawImageUrl),
+            okThumb and 'none' or tostring(thumbErr or 'invalid_url'),
+            urlDebugSummary(rawThumbnailUrl)
         ))
-        return nil, urlErr or 'invalid_image_url'
+        if okThumb then
+            okUrl = true
+            urlErr = nil
+            imageUrl = thumbUrl
+            imageInfo = thumbInfo
+            selectedUrlField = 'thumbnail_url'
+        end
     end
 
-    realEstatePhotoDebug(source, ('calling export AttachPhotoToListingFromPhone listingCode=%s galleryPhotoId=%s url=%s'):format(
+    if not okUrl then
+        local publicUrlErr = urlErr
+        if rawImageUrl == '' or urlErr == 'scheme_not_allowed' or urlErr == 'local_path_not_allowed' or urlErr == 'missing_scheme' then
+            publicUrlErr = 'upload_public_url_missing'
+        end
+        realEstatePhotoDebug(source, ('phone url rejected galleryPhotoId=%s error=%s url=%s'):format(
+            tostring(galleryPhotoId),
+            tostring(publicUrlErr or 'invalid_image_url'),
+            urlDebugSummary(photo.image_url)
+        ))
+        return nil, publicUrlErr or 'invalid_image_url'
+    end
+
+    realEstatePhotoDebug(source, ('calling mz_realestate listingCode=%s galleryPhotoId=%s field=%s scheme=%s host=%s len=%s'):format(
         tostring(listingCode),
         tostring(galleryPhotoId),
-        urlDebugSummary(imageUrl)
+        tostring(selectedUrlField),
+        tostring(imageInfo and imageInfo.scheme or ''),
+        tostring(imageInfo and imageInfo.host or ''),
+        tostring(imageInfo and imageInfo.length or #tostring(imageUrl or ''))
     ))
 
     local ok, resultOrErr = realEstateSafeExport('AttachPhotoToListingFromPhone', source, listingCode, {
         galleryPhotoId = galleryPhotoId,
         imageUrl = imageUrl,
+        imageUrlField = selectedUrlField,
         caption = photo.caption
     })
     if ok ~= true then

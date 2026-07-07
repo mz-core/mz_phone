@@ -194,7 +194,10 @@ Regras:
 - `RealEstateApp.applyMediaResult(result, context, request)` deve usar `context.listingCode` e `result.galleryPhotoId || result.id`.
 - `PhoneMedia.complete` deve preservar o telefone aberto e voltar para o app consumidor com `returnState` e contexto antes de disparar `applyMediaResult`.
 - RealEstate photos: o phone envia `galleryPhotoId`; o server do `mz_phone` resolve `image_url` pela `mz_phone_gallery`; o `mz_realestate` grava `image_url` em `mz_realestate_listing_photos`.
+- Para anuncio, o `image_url` resolvido na galeria precisa ser `http/https`; `nui://`, `cfx-nui://`, base64, caminho local ou valor vazio devem falhar com `upload_public_url_missing`.
 - Preview de fotos de anuncio deve passar por normalizacao defensiva e aceitar `imageUrl`, `image_url`, `thumbnailUrl`, `thumbnail_url`, `coverImage`, `coverUrl`, `cover_image` e `cover_url`.
+- Fotos de anuncio publico precisam ter `image_url` HTTP/HTTPS persistido na galeria. Quando a foto estiver em `nui://`, `cfx-nui://`, caminho local, base64 ou outro scheme nao publico, o anexo deve falhar com `upload_public_url_missing` e orientar a configurar upload publico.
+- Webhook/token real nao deve ficar em `shared/config.lua`; use placeholders no resource e configure o segredo em arquivo local/ambiente do servidor.
 
 ## Falhas comuns
 
@@ -205,6 +208,7 @@ Regras:
 - `returnState` restaura uma tela antiga e apaga estado necessario para anexar.
 - Retorno de picker/camera nao reafirma `isOpen`, fazendo o telefone parecer fechado mesmo com o app de destino restaurado.
 - `mz_realestate` pode negar por permissao, anuncio arquivado, limite de fotos, URL maior que `Photos.maxImageUrlLength` ou scheme nao permitido.
+- Camera em modo picker so anexa automaticamente quando `cameraPhotoSaved` traz `id`/`galleryPhotoId` real. Sem esse ID, o app consumidor deve orientar a usar `Adicionar da Galeria`.
 
 ## Debug controlado
 

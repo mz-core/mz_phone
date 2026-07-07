@@ -3,14 +3,21 @@
 }
 
 .realestate-tabs {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  display: flex;
+  overflow-x: auto;
   gap: 6px;
   margin-bottom: 10px;
+  scrollbar-width: none;
+}
+
+.realestate-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .realestate-tab {
+  flex: 0 0 auto;
   min-height: 34px;
+  min-width: 72px;
   border: 1px solid var(--app-card-border);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.06);
@@ -710,8 +717,44 @@
   cursor: default;
 }
 
+.realestate-save.is-disabled {
+  opacity: 0.68;
+  filter: grayscale(0.25);
+}
+
 .realestate-save svg,
 .realestate-save i {
   width: 16px;
   height: 16px;
+}
+
+.realestate-form-note.is-warning {
+  border-color: rgba(245, 158, 11, 0.36);
+  background: rgba(245, 158, 11, 0.12);
+  color: #fde68a;
+}
+
+.realestate-create-checklist {
+  border: 1px solid var(--app-card-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+  padding: 10px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.realestate-create-checklist div {
+  color: var(--text-title);
+  font-weight: 850;
+  margin-bottom: 6px;
+}
+
+.realestate-create-checklist ol {
+  margin: 0;
+  padding-left: 17px;
+}
+
+.realestate-create-checklist li + li {
+  margin-top: 4px;
 }

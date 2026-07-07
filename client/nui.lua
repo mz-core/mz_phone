@@ -208,7 +208,7 @@ RegisterNUICallback('getMyRealEstateListing', function(data, cb)
 end)
 
 RegisterNUICallback('createRealEstateListing', function(data, cb)
-    nuiLog('createRealEstateListing', 'create listing')
+    nuiLog('createRealEstateListing', 'callback received')
     TriggerServerEvent('mz_phone:server:createRealEstateListing', data or {})
     ok(cb)
 end)
