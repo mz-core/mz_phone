@@ -15,6 +15,38 @@ const DEFAULT_PHONE_STATE = {
   appParams: {},
   dialog: null,
 
+  bankView: "overview",
+  bankLoading: false,
+  bankError: "",
+  bankOverview: null,
+  bankCards: [],
+  bankTransferDraft: {
+    branch: "0001",
+    accountNumber: "",
+    checkDigit: "",
+    amount: "",
+  },
+  bankRecipient: null,
+  bankConfirmationRef: "",
+  bankTransferBusy: false,
+  bankTransferError: "",
+  bankReceipt: null,
+  bankCardIntent: null,
+  bankCardBusy: false,
+  bankCardError: "",
+  bankCardMessage: "",
+  bankFavorites: [],
+  bankFavoriteIntent: null,
+  bankFavoriteBusy: false,
+  bankFavoriteError: "",
+  bankFavoriteSaved: false,
+  bankCapabilities: {
+    statement: false,
+    transfer: false,
+    cards: false,
+    blockCard: false,
+  },
+
   settingsView: "main",
   settingsModal: null,
   settingsInputDraft: "",
@@ -658,8 +690,8 @@ function renderHome() {
             !/[\u2190-\u2BFF\u{1F000}-\u{1FAFF}]/u.test(icon);
 
           return `
-            <button class="app-icon-button" onclick="window.openApp('${app.id}')">
-              <div class="app-icon">
+            <button class="app-icon-button" onclick="window.openApp('${window.Utils.escapeHtmlAttr(app.id)}')">
+              <div class="app-icon app-icon--${window.Utils.escapeHtmlAttr(app.id)}">
                 ${
                   isLucide
                     ? `<i data-lucide="${icon}"></i>`

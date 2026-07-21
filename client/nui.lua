@@ -26,6 +26,22 @@ RegisterNUICallback('close', function(_, cb)
     ok(cb)
 end)
 
+RegisterNUICallback('bankRequest', function(data, cb)
+    nuiLog('bankRequest', ('action=%s'):format(tostring(data and data.action)))
+    TriggerServerEvent(
+        'mz_phone:server:bankRequest',
+        data and data.requestId,
+        data and data.action,
+        data and data.payload or {}
+    )
+    ok(cb)
+end)
+
+RegisterNUICallback('bankClose', function(_, cb)
+    TriggerServerEvent('mz_phone:server:bankClose')
+    ok(cb)
+end)
+
 RegisterNUICallback('getNotes', function(_, cb)
     nuiLog('getNotes', 'request notes')
     TriggerServerEvent('mz_phone:server:getNotes')
@@ -323,6 +339,10 @@ end)
 RegisterNetEvent('mz_phone:client:receiveContacts', function(contacts)
     MZPhone.Debug.Log('contacts', ('received count=%s'):format(tostring(#(contacts or {}))))
     SendNUIMessage({ action = 'receiveContacts', contacts = contacts or {} })
+end)
+
+RegisterNetEvent('mz_phone:client:bankResponse', function(data)
+    SendNUIMessage({ action = 'bankResponse', data = data or {} })
 end)
 
 RegisterNetEvent('mz_phone:client:receiveNotes', function(notes)

@@ -126,7 +126,25 @@ CREATE TABLE IF NOT EXISTS mz_phone_notifications (
     title VARCHAR(120) DEFAULT NULL,
     message VARCHAR(500) DEFAULT NULL,
     data JSON NULL,
+    dedupe_key VARCHAR(180) NULL,
     read_at TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_mz_phone_notifications_citizenid (citizenid)
+    INDEX idx_mz_phone_notifications_citizenid (citizenid),
+    UNIQUE KEY uq_mz_phone_notifications_dedupe (citizenid, dedupe_key)
 );
+
+CREATE TABLE IF NOT EXISTS mz_phone_bank_favorites (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    owner_citizenid VARCHAR(64) NOT NULL,
+    label VARCHAR(80) NOT NULL,
+    branch CHAR(4) NOT NULL,
+    account_number CHAR(8) NOT NULL,
+    check_digit CHAR(1) NOT NULL,
+    account_type VARCHAR(24) NOT NULL DEFAULT 'personal',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_mz_phone_bank_favorites_owner_route
+        (owner_citizenid, branch, account_number, account_type),
+    INDEX idx_mz_phone_bank_favorites_owner_updated (owner_citizenid, updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

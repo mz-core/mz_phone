@@ -161,6 +161,82 @@ Regras:
 - Nao depender de seletor global fragil para layout interno.
 - Manter estados de loading, vazio, erro e sucesso.
 
+## Padrao visual oficial
+
+O visual deve parecer parte do telefone antes de parecer parte de uma marca especifica.
+O app pode ter uma cor de destaque, uma hero card ou uma capa propria, mas deve preservar
+o shell, a geometria e os comportamentos compartilhados.
+
+### Estrutura
+
+- A raiz usa `.app-page` sem margem negativa e sem aumentar artificialmente a altura.
+- O fundo normal vem de `var(--screen-bg)` e deve funcionar nos temas claro e escuro.
+- O cabecalho usa `.app-header--standard`, com tres colunas de `40px / 1fr / 40px`.
+- A area rolavel usa `.app-content`; nao criar uma segunda rolagem para a mesma tela.
+- Apps comuns nao desenham por cima da status bar, notch ou home indicator.
+- Fullscreen e reservado para camera, visualizador de midia e fluxos equivalentes.
+
+### Tipografia e toque
+
+- Titulo de tela: `20px` pelo componente compartilhado.
+- Titulo de linha/card: entre `14px` e `16px`.
+- Texto secundario: entre `12px` e `14px`.
+- Texto auxiliar nunca deve ficar abaixo de `11px`, salvo marcador puramente decorativo.
+- Controles principais devem ter ao menos `44px` de altura.
+- Icon buttons devem ter area de toque entre `32px` e `40px`.
+
+### Superficies e componentes
+
+- Usar `.app-surface-card` para superficies neutras.
+- Usar `.app-section-heading-standard` para titulo e subtitulo de uma secao.
+- Usar `.app-inline-notice` para aviso curto que nao bloqueia a tela.
+- Usar `.app-state-view` para loading, vazio, indisponivel, erro e sucesso.
+- Cards usam os tokens `--app-card-bg`, `--app-card-border` e `--app-card-text`.
+- A cor propria do app e um acento; nao deve substituir todos os tokens do telefone.
+
+### Tabs inferiores
+
+Tabs inferiores so devem existir quando o app possui tres ou mais areas primarias.
+Quando usadas:
+
+- aplicar `.app-bottom-tabs` no container;
+- aplicar `.app-bottom-tab` em cada item;
+- limitar a quatro ou cinco itens curtos;
+- reservar `82px` no fim do `.app-content`;
+- usar o mesmo fundo do shell e uma divisoria superior;
+- nao criar uma barra flutuante sobre o conteudo.
+
+O app Chamadas e a referencia de comportamento. Apps com navegacao simples devem preferir
+cabecalho e botao Voltar.
+
+### Tema e rolagem
+
+- Todo app deve ser legivel com `data-theme="dark"` e `data-theme="light"`.
+- Nao fixar fundo escuro na pagina inteira sem variante clara.
+- O padrao atual oculta visualmente a scrollbar, preservando a rolagem.
+- Se uma scrollbar visivel for realmente necessaria, ela deve ser uma decisao global do shell,
+  nao uma excecao isolada de um app.
+
+### Estados e mensagens
+
+- Loading nao pode deslocar ou duplicar o shell.
+- Vazio explica o que falta e oferece no maximo uma proxima acao.
+- Erro informa o dominio e permite retry quando seguro.
+- Acao desabilitada deve explicar por que esta indisponivel.
+- Avisos de ambiente de teste devem ser claros, compactos e nao competir com o conteudo principal.
+
+### Revisao visual obrigatoria
+
+- [ ] Raiz sem margem negativa ou overflow acidental.
+- [ ] Cabecalho alinhado ao restante dos apps.
+- [ ] Textos auxiliares com pelo menos `11px`.
+- [ ] Botoes principais com pelo menos `44px`.
+- [ ] Tema claro e escuro conferidos.
+- [ ] Conteudo nao fica escondido por tabs ou home indicator.
+- [ ] Loading, vazio, erro e sucesso conferidos.
+- [ ] Abrir, voltar, fechar e reabrir nao preserva modal ou draft indevido.
+- [ ] Nao existem `alert`, `confirm`, `prompt` ou `fetch` direto no app.
+
 ## Adicao de novo app
 
 Checklist:

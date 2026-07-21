@@ -1,5 +1,10 @@
 math.randomseed(os.time())
 
+exports('CreateBankTransferNotifications', function(request)
+    local callerResource = GetInvokingResource()
+    return MZPhoneServer.Service.CreateBankTransferNotifications(request, callerResource)
+end)
+
 AddEventHandler('onResourceStart', function(resourceName)
     if resourceName ~= GetCurrentResourceName() then
         return

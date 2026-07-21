@@ -444,24 +444,12 @@ local function tableText(root, ...)
 end
 
 local function realEstateResourceReady()
-    return GetResourceState('mz_realestate') == 'started'
+    -- A integracao comercial foi aposentada. Nao chamar o resource legado.
+    return false
 end
 
 local function realEstateSafeExport(name, ...)
-    if not realEstateResourceReady() then
-        return nil, 'realestate_unavailable'
-    end
-
-    local ok, result, extra = pcall(function(...)
-        return exports['mz_realestate'][name](...)
-    end, ...)
-
-    if not ok then
-        Security.Log('realestate', 0, ('export=%s error=%s'):format(tostring(name), tostring(result)), true)
-        return nil, 'realestate_export_failed'
-    end
-
-    return result, extra
+    return nil, 'realestate_retired'
 end
 
 local function realEstatePhotoDebugEnabled()
@@ -901,6 +889,114 @@ function MZPhoneServer.Service.Load(source)
     end
 
     return buildDefaults(identity, number)
+end
+
+function MZPhoneServer.Service.CreateBankTransferNotifications(request, callerResource)
+    if tostring(callerResource or '') ~= 'mz_bank' then
+        return { ok = false, error = 'notification_forbidden' }
+    end
+
+    request = type(request) == 'table' and request or {}
+    local senderSource = Security.NormalizeSource(request.senderSource)
+    local targetSource = Security.NormalizeSource(request.targetSource)
+    local amount = tonumber(request.amount)
+    local correlationId = Security.SanitizeText(request.correlationId, 120)
+
+    if not senderSource or not targetSource or senderSource == targetSource then
+        return { ok = false, error = 'invalid_source' }
+    end
+    if not amount or amount ~= math.floor(amount) or amount <= 0 or amount > 2147483647 then
+        return { ok = false, error = 'invalid_amount' }
+    end
+    if correlationId == '' or correlationId:match('^[%w_:%-]+$') == nil then
+        return { ok = false, error = 'invalid_correlation_id' }
+    end
+
+    local senderIdentity = Security.RequireIdentity(senderSource, {
+        context = 'bank_transfer_notification_sender'
+    })
+    local targetIdentity = Security.RequireIdentity(targetSource, {
+        context = 'bank_transfer_notification_target'
+    })
+    if not senderIdentity or not targetIdentity then
+        return { ok = false, error = 'identity_unavailable' }
+    end
+
+    local amountLabel = tostring(math.floor(amount))
+    local commonData = {
+        schemaVersion = 1,
+        kind = 'bank_transfer',
+        amount = math.floor(amount),
+        correlationId = correlationId
+    }
+    local senderData = {
+        schemaVersion = commonData.schemaVersion,
+        kind = commonData.kind,
+        direction = 'out',
+        amount = commonData.amount,
+        correlationId = commonData.correlationId
+    }
+    local targetData = {
+        schemaVersion = commonData.schemaVersion,
+        kind = commonData.kind,
+        direction = 'in',
+        amount = commonData.amount,
+        correlationId = commonData.correlationId
+    }
+
+    local senderRow, senderCreated = Repository.CreateNotificationOnce(
+        senderIdentity.citizenid,
+        'bank',
+        'Transferencia enviada',
+        ('-R$%s - concluida'):format(amountLabel),
+        senderData,
+        ('bank_transfer:%s:out'):format(correlationId)
+    )
+    local targetRow, targetCreated = Repository.CreateNotificationOnce(
+        targetIdentity.citizenid,
+        'bank',
+        'Transferencia recebida',
+        ('+R$%s - recebida na sua conta'):format(amountLabel),
+        targetData,
+        ('bank_transfer:%s:in'):format(correlationId)
+    )
+
+    if not senderRow or not targetRow then
+        return { ok = false, error = 'notification_persistence_failed' }
+    end
+
+    if senderCreated then
+        TriggerClientEvent('mz_phone:client:notify', senderSource, {
+            type = 'success',
+            icon = 'landmark',
+            title = 'Transferencia enviada',
+            message = ('-R$%s - concluida'):format(amountLabel),
+            appLabel = 'MZ Bank'
+        })
+    end
+    if targetCreated then
+        TriggerClientEvent('mz_phone:client:notify', targetSource, {
+            type = 'success',
+            icon = 'landmark',
+            title = 'Transferencia recebida',
+            message = ('+R$%s - recebida na sua conta'):format(amountLabel),
+            appLabel = 'MZ Bank'
+        })
+    end
+
+    Security.Log(
+        'bank_notification',
+        senderSource,
+        ('persisted created=%s duplicates=%s'):format(
+            tostring((senderCreated and 1 or 0) + (targetCreated and 1 or 0)),
+            tostring((senderCreated and 0 or 1) + (targetCreated and 0 or 1))
+        )
+    )
+    return {
+        ok = true,
+        created = (senderCreated and 1 or 0) + (targetCreated and 1 or 0),
+        duplicates = (senderCreated and 0 or 1) + (targetCreated and 0 or 1)
+    }
 end
 
 function MZPhoneServer.Service.GetRealEstateListings(source, filters)

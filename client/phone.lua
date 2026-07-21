@@ -27,6 +27,7 @@ function MZPhone.ReleaseFocus(reason)
 end
 
 function MZPhone.SetOpen(state, data)
+    local wasOpen = phoneOpen == true
     phoneOpen = state == true
 
     if phoneOpen then
@@ -56,6 +57,10 @@ function MZPhone.SetOpen(state, data)
             action = 'loadData',
             data = data or {}
         })
+    end
+
+    if wasOpen and not phoneOpen then
+        TriggerServerEvent('mz_phone:server:bankClose')
     end
 end
 

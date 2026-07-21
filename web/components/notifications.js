@@ -81,10 +81,9 @@ window.PhoneUI.notify = function (payload = {}) {
       </div>
     `;
 
-  const appHtml =
-    typeClass === "message" && appLabel
-      ? `<div class="phone-notify-app message-app">${window.Utils.escapeHtml(appLabel)}</div>`
-      : "";
+  const appHtml = appLabel
+    ? `<div class="phone-notify-app ${window.Utils.escapeHtmlAttr(typeClass)}-app">${window.Utils.escapeHtml(appLabel)}</div>`
+    : "";
 
   el.innerHTML = `
     <div class="phone-notify-media">

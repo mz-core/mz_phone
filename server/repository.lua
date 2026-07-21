@@ -31,6 +31,18 @@ local function addColumnIfMissing(tableName, columnName, definition)
     MySQL.query.await(('ALTER TABLE `%s` ADD COLUMN `%s` %s'):format(tableName, columnName, definition))
 end
 
+local function indexExists(tableName, indexName)
+    local row = MySQL.single.await([[
+        SELECT COUNT(*) AS count
+        FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = ?
+            AND INDEX_NAME = ?
+    ]], { tableName, indexName })
+
+    return row and tonumber(row.count) and tonumber(row.count) > 0
+end
+
 local function migrateLegacyColumns()
     renameColumnIfNeeded('mz_phone_numbers', 'character_id', 'citizenid', 'VARCHAR(64) NOT NULL')
 
@@ -75,6 +87,17 @@ local function migrateCallColumns()
     addColumnIfMissing('mz_phone_calls', 'started_at', 'TIMESTAMP NULL')
     addColumnIfMissing('mz_phone_calls', 'answered_at', 'TIMESTAMP NULL')
     addColumnIfMissing('mz_phone_calls', 'ended_at', 'TIMESTAMP NULL')
+end
+
+local function migrateNotificationColumns()
+    addColumnIfMissing('mz_phone_notifications', 'dedupe_key', 'VARCHAR(180) NULL')
+
+    if not indexExists('mz_phone_notifications', 'uq_mz_phone_notifications_dedupe') then
+        MySQL.query.await([[
+            ALTER TABLE mz_phone_notifications
+            ADD UNIQUE KEY uq_mz_phone_notifications_dedupe (citizenid, dedupe_key)
+        ]])
+    end
 end
 
 function Repository.Prepare()
@@ -225,16 +248,133 @@ function Repository.Prepare()
             title VARCHAR(120) DEFAULT NULL,
             message VARCHAR(500) DEFAULT NULL,
             data JSON NULL,
+            dedupe_key VARCHAR(180) NULL,
             read_at TIMESTAMP NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_mz_phone_notifications_citizenid (citizenid)
+            INDEX idx_mz_phone_notifications_citizenid (citizenid),
+            UNIQUE KEY uq_mz_phone_notifications_dedupe (citizenid, dedupe_key)
         )
+    ]])
+
+    MySQL.query.await([[
+        CREATE TABLE IF NOT EXISTS mz_phone_bank_favorites (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            owner_citizenid VARCHAR(64) NOT NULL,
+            label VARCHAR(80) NOT NULL,
+            branch CHAR(4) NOT NULL,
+            account_number CHAR(8) NOT NULL,
+            check_digit CHAR(1) NOT NULL,
+            account_type VARCHAR(24) NOT NULL DEFAULT 'personal',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY uq_mz_phone_bank_favorites_owner_route
+                (owner_citizenid, branch, account_number, account_type),
+            INDEX idx_mz_phone_bank_favorites_owner_updated (owner_citizenid, updated_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ]])
 
     migrateLegacyColumns()
     migrateGalleryColumns()
     migrateMessageColumns()
     migrateCallColumns()
+    migrateNotificationColumns()
+end
+
+function Repository.GetBankFavorites(ownerCitizenid)
+    return MySQL.query.await([[
+        SELECT id, label, branch, account_number, check_digit, account_type,
+               created_at, updated_at
+        FROM mz_phone_bank_favorites
+        WHERE owner_citizenid = ?
+        ORDER BY updated_at DESC, id DESC
+    ]], { ownerCitizenid }) or {}
+end
+
+function Repository.GetBankFavorite(ownerCitizenid, favoriteId)
+    favoriteId = tonumber(favoriteId)
+    if not favoriteId then return nil end
+    return MySQL.single.await([[
+        SELECT id, label, branch, account_number, check_digit, account_type,
+               created_at, updated_at
+        FROM mz_phone_bank_favorites
+        WHERE id = ? AND owner_citizenid = ?
+        LIMIT 1
+    ]], { favoriteId, ownerCitizenid })
+end
+
+function Repository.GetBankFavoriteByRoute(ownerCitizenid, route)
+    route = type(route) == 'table' and route or {}
+    return MySQL.single.await([[
+        SELECT id, label, branch, account_number, check_digit, account_type,
+               created_at, updated_at
+        FROM mz_phone_bank_favorites
+        WHERE owner_citizenid = ? AND branch = ? AND account_number = ?
+          AND account_type = ?
+        LIMIT 1
+    ]], {
+        ownerCitizenid, route.branch, route.accountNumber, route.accountType or 'personal'
+    })
+end
+
+function Repository.CountBankFavorites(ownerCitizenid)
+    return tonumber(MySQL.scalar.await([[
+        SELECT COUNT(*) FROM mz_phone_bank_favorites WHERE owner_citizenid = ?
+    ]], { ownerCitizenid })) or 0
+end
+
+function Repository.UpsertBankFavorite(ownerCitizenid, label, route)
+    route = type(route) == 'table' and route or {}
+    MySQL.insert.await([[
+        INSERT INTO mz_phone_bank_favorites
+            (owner_citizenid, label, branch, account_number, check_digit, account_type)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+            label = VALUES(label),
+            check_digit = VALUES(check_digit),
+            updated_at = CURRENT_TIMESTAMP
+    ]], {
+        ownerCitizenid,
+        label,
+        route.branch,
+        route.accountNumber,
+        route.checkDigit,
+        route.accountType or 'personal'
+    })
+    return Repository.GetBankFavoriteByRoute(ownerCitizenid, route)
+end
+
+function Repository.DeleteBankFavorite(ownerCitizenid, favoriteId)
+    favoriteId = tonumber(favoriteId)
+    if not favoriteId then return 0 end
+    return MySQL.update.await([[
+        DELETE FROM mz_phone_bank_favorites
+        WHERE id = ? AND owner_citizenid = ?
+    ]], { favoriteId, ownerCitizenid })
+end
+
+function Repository.CreateNotificationOnce(citizenid, appId, title, message, data, dedupeKey)
+    local affected = MySQL.update.await([[
+        INSERT IGNORE INTO mz_phone_notifications
+            (citizenid, app_id, title, message, data, dedupe_key)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ]], {
+        citizenid,
+        appId,
+        title,
+        message,
+        data and json.encode(data) or nil,
+        dedupeKey
+    })
+
+    local row = MySQL.single.await([[
+        SELECT id, app_id, title, message, data, read_at, created_at
+        FROM mz_phone_notifications
+        WHERE citizenid = ? AND dedupe_key = ?
+        LIMIT 1
+    ]], { citizenid, dedupeKey })
+
+    return row, tonumber(affected) == 1
 end
 
 function Repository.GetPhoneByCharacter(citizenid)

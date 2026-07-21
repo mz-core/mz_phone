@@ -12,7 +12,15 @@ Resource de celular integrado ao `mz_core`.
 
 ## Identidade e SQL
 
-O `mz_phone` usa o `citizenid` da tabela `mz_players` como dono oficial de numeros, contatos, conversas, mensagens, settings e notificacoes. A `license` fica somente no server do `mz_core`, usada para resolver o player em `mz_players`.
+O `mz_phone` usa o `citizenid` da tabela `mz_players` como dono oficial de numeros, contatos,
+conversas, mensagens, settings, notificacoes e favoritos bancarios. A `license` fica somente no
+server do `mz_core`, usada para resolver o player em `mz_players`. Favoritos bancarios guardam
+somente apelido e rota publica; nunca guardam saldo ou o `citizenid` do destinatario.
+
+Notificacoes de transferencia do MZ Bank sao persistidas em `mz_phone_notifications`. O campo
+`dedupe_key` e unico por personagem e `correlationId`, evitando duplicidade em replay ou duplo
+clique. A integracao e um export exclusivamente server-side aceito apenas quando chamado pelo
+`mz_bank`; nenhum identificador interno e enviado ao frontend.
 
 O SQL atual usa colunas `citizenid` e `owner_citizenid`. Se o banco ja tiver sido criado com `character_id`, o `Repository.Prepare()` tenta renomear as colunas antigas automaticamente no start do resource.
 
@@ -21,18 +29,19 @@ O SQL atual usa colunas `citizenid` e `owner_citizenid`. Se o banco ja tiver sid
 ```cfg
 ensure oxmysql
 ensure ox_lib
-ensure mz_core
 ensure mz_notify
+ensure mz_core
+ensure mz_economy
+ensure mz_inventory
+ensure mz_bank
 ensure mz_phone
 ```
 
-## App Imoveis
+## Casas
 
-O app `Imoveis` aparece na home do telefone e consome dados publicos do `mz_realestate`. Ele lista anuncios ativos, abre detalhes, marca GPS quando o anuncio tem coordenadas e permite ligar ou abrir conversa quando ha telefone.
-
-O `mz_phone` nao consulta tabelas do `mz_realestate`; ele usa exports seguros do resource de imoveis. Para listar todos os anuncios publicos ativos, garanta que `mz_realestate` esteja iniciado antes de abrir o app.
-
-A area `Meus anuncios` usa as permissoes do proprio `mz_realestate` para corretores/imobiliarias. Por ela e possivel criar anuncio simples, editar titulo/preco/descricao/contato, pausar, reativar e arquivar. Fotos pelo telefone ainda nao fazem parte desta fase.
+O aplicativo comercial de imoveis foi aposentado. Ele esta desabilitado no
+registro de apps, seus assets nao sao carregados e o servidor nao chama exports
+de `mz_realestate`. Casas sao administradas pelo comando `/mzhouses`.
 
 ## Debug
 

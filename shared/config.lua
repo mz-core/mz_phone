@@ -23,6 +23,9 @@ Config.Phone = {
     RetryOpenWhenLoading = true,
     RetryOpenDelayMs = 2000,
     RetryOpenMaxAttempts = 3,
+    Bank = {
+        MaxFavorites = 12
+    },
     Calls = {
         Enabled = true,
         VoiceAdapter = 'none',
@@ -307,6 +310,7 @@ Config.Security = {
     PhoneMaxLength = 32,
     RateLimits = {
         load = { limit = 12, window = 30 },
+        bank = { limit = 24, window = 30 },
         save = { limit = 10, window = 30 },
         contact = { limit = 20, window = 30 },
         message = { limit = 8, window = 10 },

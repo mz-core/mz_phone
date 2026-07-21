@@ -42,6 +42,7 @@ server_scripts {
     'server/security.lua',
     'server/repository.lua',
     'server/service.lua',
+    'server/bank.lua',
     'server/calls.lua',
     'server/callbacks.lua',
     'server/main.lua'

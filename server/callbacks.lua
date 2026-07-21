@@ -57,6 +57,24 @@ RegisterNetEvent('mz_phone:server:load', function()
     TriggerClientEvent('mz_phone:client:loaded', src, data)
 end)
 
+RegisterNetEvent('mz_phone:server:bankRequest', function(requestId, action, payload)
+    local src = source
+    local safeRequestId = tostring(requestId or '')
+    if #safeRequestId > 80 or safeRequestId:match('^[%w_%-]+$') == nil then return end
+
+    local result = runSafe('bankRequest', src, function()
+        return MZPhoneServer.Bank.HandleRequest(src, action, payload or {})
+    end)
+    TriggerClientEvent('mz_phone:client:bankResponse', src, {
+        requestId = safeRequestId,
+        result = result or { ok = false, error = 'internal_error' }
+    })
+end)
+
+RegisterNetEvent('mz_phone:server:bankClose', function()
+    MZPhoneServer.Bank.Close(source, 'phone_close')
+end)
+
 RegisterNetEvent('mz_phone:server:save', function(data)
     local src = source
     runSafe('save', src, function()

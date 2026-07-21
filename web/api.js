@@ -35,6 +35,27 @@ window.PhoneAPI = (() => {
   };
 
   let isPhoneOpen = false;
+  let bankRequestCounter = 0;
+  const pendingBankRequests = new Map();
+
+  function settleBankRequest(requestId, result) {
+    const pending = pendingBankRequests.get(String(requestId || ""));
+    if (!pending) return;
+    clearTimeout(pending.timeout);
+    pendingBankRequests.delete(String(requestId));
+    pending.resolve(result && typeof result === "object" ? result : {
+      ok: false,
+      error: "bank_unavailable",
+    });
+  }
+
+  function cancelBankRequests() {
+    pendingBankRequests.forEach((pending) => {
+      clearTimeout(pending.timeout);
+      pending.resolve({ ok: false, error: "request_cancelled" });
+    });
+    pendingBankRequests.clear();
+  }
 
   async function post(endpoint, data = {}) {
     try {
@@ -109,7 +130,14 @@ window.PhoneAPI = (() => {
 
     if (action === "close") {
       isPhoneOpen = false;
+      cancelBankRequests();
       emit("close");
+      return;
+    }
+
+    if (action === "bankResponse") {
+      const payload = data.data || {};
+      settleBankRequest(payload.requestId, payload.result);
       return;
     }
 
@@ -319,6 +347,35 @@ window.PhoneAPI = (() => {
         callId,
         ...(options || {}),
       });
+    },
+
+    async bankRequest(action, payload = {}) {
+      bankRequestCounter += 1;
+      const requestId = `bank_${Date.now()}_${bankRequestCounter}`;
+      const resultPromise = new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          pendingBankRequests.delete(requestId);
+          resolve({ ok: false, error: "request_timeout" });
+        }, 8000);
+        pendingBankRequests.set(requestId, { resolve, timeout });
+      });
+
+      const accepted = await post("bankRequest", {
+        requestId,
+        action: String(action || ""),
+        payload: payload && typeof payload === "object" ? payload : {},
+      });
+      if (accepted && accepted.ok === false) {
+        settleBankRequest(requestId, {
+          ok: false,
+          error: accepted.error || "request_rejected",
+        });
+      }
+      return await resultPromise;
+    },
+
+    async closeBankSession() {
+      return await post("bankClose", {});
     },
 
     onIncomingCall(callback) {
