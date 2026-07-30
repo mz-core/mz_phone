@@ -2,6 +2,18 @@
 
 Resource de celular integrado ao `mz_core`.
 
+## Arquitetura e criação de apps
+
+Antes de criar ou integrar um novo app, consulte:
+
+- [`docs/PADRAO_APPS.md`](docs/PADRAO_APPS.md): contrato oficial, exemplos e checklist;
+- [`docs/ANALISE_ARQUITETURA_MZ_PHONE.md`](docs/ANALISE_ARQUITETURA_MZ_PHONE.md): diagnóstico do `mz_phone` e do `mz_phone_server`;
+- [`docs/PADRAO_MEDIA_CAMERA_GALERIA.md`](docs/PADRAO_MEDIA_CAMERA_GALERIA.md): fluxo especializado de mídia.
+
+Resumo da divisão: o `mz_phone` contém UI, ponte FiveM, autorização e integrações de domínio; o
+`mz_phone_server` é somente o serviço externo de assets e uploads. JavaScript/CSS executável de
+apps permanece versionado dentro do resource.
+
 ## Antes de iniciar
 
 1. Importe `sql/mz_phone.sql` no banco.

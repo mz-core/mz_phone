@@ -2,12 +2,16 @@
 
 Este checklist e o guia de continuidade do `mz_phone`. Ele foi criado a partir da leitura do estado atual do workspace, sem uso de historico Git e sem alterar runtime.
 
+> Este arquivo preserva itens historicos de estabilizacao. Para novos apps, o documento normativo
+> e `PADRAO_APPS.md`; em caso de divergencia, ele prevalece. O diagnostico atualizado fica em
+> `ANALISE_ARQUITETURA_MZ_PHONE.md`.
+
 ## Regras de trabalho
 
 - [ ] Nao tocar em `mz_core` durante fases do telefone.
 - [ ] Nao reescrever `mz_phone` inteiro.
 - [ ] Nao copiar codigo runtime do `celular`; usar somente como referencia visual/UX.
-- [ ] Manter camera, galeria, `mz_phone_server`, RealEstate, mensagens, chamadas e notas operando.
+- [ ] Manter camera, galeria, `mz_phone_server`, mensagens, chamadas e notas operando; nao reativar RealEstate sem uma fase propria.
 - [ ] Cada fase deve ter escopo fechado, lista de arquivos afetados e validacao manual definida antes de editar runtime.
 - [ ] Marcar item como concluido somente depois de implementado e validado.
 
@@ -25,7 +29,8 @@ Este checklist e o guia de continuidade do `mz_phone`. Ele foi criado a partir d
 ## Padrao de apps
 
 - [ ] Todos os apps devem seguir o contrato documentado em `PADRAO_APPS.md`.
-- [ ] Novos apps devem ser adicionados em `web/apps/<id>.js`, `web/css/apps/<id>.css`, `web/index.html`, `fxmanifest.lua` e `shared/apps.lua`.
+- [ ] Novos apps devem ser adicionados em `web/apps/<id>.js`, `web/css/apps/<id>.css` e `web/index.html`; os wildcards atuais do `fxmanifest.lua` ja cobrem esses caminhos.
+- [ ] Nao tratar `shared/apps.lua` como catalogo ativo: a home atual usa somente o `AppRegistry` carregado pelo `web/index.html`.
 - [ ] Estado persistente deve passar por `AppContract` quando houver normalizacao.
 - [ ] Estado transiente de tela deve ficar no `PhoneApp`/`DEFAULT_PHONE_STATE`, com nomes prefixados pelo app.
 - [ ] Apps nao devem chamar diretamente eventos Lua; devem usar `PhoneAPI`.
@@ -43,6 +48,9 @@ Este checklist e o guia de continuidade do `mz_phone`. Ele foi criado a partir d
 - [ ] Nao anexar automaticamente foto de camera em novas alteracoes ate a fase dedicada.
 
 ## RealEstate
+
+> Secao historica. O app foi aposentado e nao e carregado pelo `web/index.html`; nao usar como
+> referencia para novos apps.
 
 - [x] Manter integracao com exports do `mz_realestate`; nao mover regras para `mz_phone`.
 - [x] Manter validacao de propriedade da foto no servidor antes de anexar.
